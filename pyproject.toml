@@ -1,5 +1,5 @@
 [project]
-name = "flucs-fluid-itg"
+name = "flucs_fluid_itg"
 description = "A collection of flucs systems for various fluid models of ITG turbulence"
 authors = [
     {name = "P. G. Ivanov"}, 
