@@ -18,7 +18,7 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [tool.setuptools_scm]
-write_to = "src/flucs_fluid_itg/_version.py"   # create this at build/install time
+write_to = "src/_version.py"   # create this at build/install time
 fallback_version = "0.0"    
 
 [project.entry-points."flucs.systems"]
