@@ -8,7 +8,7 @@ import cupy as cp
 import numpy as np
 from cupy.cuda import cufft
 
-from .cold_itg_2d_fourier_diagnostics import HeatfluxDiag
+from .cold_itg_2d_fourier_diagnostics import HeatfluxDiag, HeatfluxDiagOld, FreeEnergyDiag, FreeEnergyTimeDerivativeDiag
 from flucs.utilities.cupy import cupy_set_device_pointer
 from flucs.solvers.fourier.fourier_system import FourierSystem
 from flucs.solvers.fourier.fourier_system_diagnostics import LinearSpectrumDiag
@@ -54,6 +54,9 @@ class ColdITG2DFourier(FourierSystem):
 
     # Supported diagnostics
     diags_dict = {"heatflux": HeatfluxDiag,
+                  "heatflux_old": HeatfluxDiagOld,
+                  "free_energy": FreeEnergyDiag,
+                  "dW_dt": FreeEnergyTimeDerivativeDiag,
                   "linear_spectrum": LinearSpectrumDiag}
 
     def setup(self):
@@ -71,18 +74,9 @@ class ColdITG2DFourier(FourierSystem):
                                     "multistep_nonlinear_terms",
                                     self.multistep_nonlinear_terms)
         # Setup kernel parameters (grid, block, shared memory)
-        self.zonal_average_cuda_block = (32, 16)
-        self.zonal_average_cuda_grid = (
-            (self.padded_nx + self.zonal_average_cuda_block[0] - 1)
-            // self.zonal_average_cuda_block[0],
-            (self.padded_ny + self.zonal_average_cuda_block[1] - 1)
-            // self.zonal_average_cuda_block[1]
-        )
-        self.zonal_average_shared_mem = (
-            self.zonal_average_cuda_block[0]
-            * self.zonal_average_cuda_block[1]
-            * self.float().nbytes
-        )
+        self.zonal_average_cuda_block = (256,)
+        self.zonal_average_cuda_grid = (self.padded_nx,)
+        self.zonal_average_shared_mem = 32 * self.float().nbytes
 
         self.nonlinear_bits_shared_mem = (
             self.cuda_block_size * self.float().nbytes
@@ -248,7 +242,7 @@ class ColdITG2DFourier(FourierSystem):
             self.cupy_module.get_function("find_nonlinear_bits")
 
         self.zonal_average_kernel =\
-            self.cupy_module.get_function("zonal_average")
+            self.cupy_module.get_function("last_axis_average_padded_ny")
 
     def begin_time_step(self) -> None:
         # Do anything model-specific here, then call the parent's method
