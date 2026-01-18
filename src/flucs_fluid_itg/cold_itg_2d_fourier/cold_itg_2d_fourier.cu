@@ -5,7 +5,6 @@
 // A lot of basic functionality is already implemented here.
 #include "flucs/solvers/fourier/fourier_system.cuh"
 
-
 extern "C" {
 
 // Array for AB3 nonlinear terms
@@ -123,16 +122,6 @@ __global__ void find_derivatives(const FLUCS_COMPLEX* fields,
         = phi + T;
 }
 
-__device__ float atomicMaxFloat(float* addr, float value) {
-    int* address_as_int = (int*) addr;
-    int old = *address_as_int, assumed;
-    do {
-        assumed = old;
-        old = atomicCAS(address_as_int, assumed,
-                        __float_as_int(fmaxf(value, __int_as_float(assumed))));
-    } while (assumed != old);
-    return __int_as_float(old);
-}
 
 __global__ void find_nonlinear_bits(const FLUCS_FLOAT* real_derivatives,
                                     const FLUCS_FLOAT* real_dxphi_zonal,
@@ -253,27 +242,27 @@ __device__ void add_nonlinear_terms(const int index,
 }
 
 __global__
-void find_heatflux_kx(
+void heatflux_kx(
     const FLUCS_COMPLEX* phi,
     const FLUCS_COMPLEX* T,
     FLUCS_COMPLEX* output){
 
-    multiply_and_sum_last_axis<HALF_NY>(
-            (FLUCS_FLOAT)2.0 * COMPLEX_ONE,
+    multiply_and_sum_last_axis<HALF_NY, true>(
+            COMPLEX_ONE,
             output,
-            DY_Functor{phi},
+            Dy_Functor{phi},
             CC_Functor{T}
         );
 
 }
 
 __global__
-void find_dW_dt_kx(
+void dW_kx(
     const FLUCS_COMPLEX* T_now,
     const FLUCS_COMPLEX* T_prev,
     FLUCS_FLOAT* output){
 
-    add_and_sum_last_axis<HALF_NY>(
+    add_and_sum_last_axis<HALF_NY, true>(
             (FLUCS_FLOAT)0.5,
             output,
             Abs2_Functor{T_now, FLOAT_ONE},
@@ -283,14 +272,28 @@ void find_dW_dt_kx(
 }
 
 __global__
-void find_free_energy_kx(
+void free_energy_kx(
     const FLUCS_COMPLEX* T,
     FLUCS_FLOAT* output){
 
-    add_and_sum_last_axis<HALF_NY>(
+    add_and_sum_last_axis<HALF_NY, true>(
             (FLUCS_FLOAT)0.5,
             output,
             Abs2_Functor{T, FLOAT_ONE}
+        );
+
+}
+
+__global__
+void free_energy_collisional_loss_kx(
+    const FLUCS_COMPLEX* T,
+    FLUCS_COMPLEX* output){
+
+    multiply_and_sum_last_axis<HALF_NY, true>(
+            FLUCS_COMPLEX(CHI, 0),
+            output,
+            DelPerp2_Functor{T},
+            CC_Functor{T}
         );
 
 }
