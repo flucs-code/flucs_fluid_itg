@@ -9,11 +9,7 @@ import numpy as np
 from cupy.cuda import cufft
 
 from .cold_itg_2d_fourier_diagnostics import HeatfluxDiag
-from .cold_itg_2d_fourier_diagnostics import HeatfluxDiagOld
 from .cold_itg_2d_fourier_diagnostics import FreeEnergyDiag
-from .cold_itg_2d_fourier_diagnostics import FreeEnergyTimeDerivativeDiag
-from .cold_itg_2d_fourier_diagnostics import FreeEnergyCollisionalLoss
-from .cold_itg_2d_fourier_diagnostics import FreeEnergyInjection
 
 from flucs.utilities.cupy import cupy_set_device_pointer
 from flucs.solvers.fourier.fourier_system import FourierSystem
@@ -60,12 +56,7 @@ class ColdITG2DFourier(FourierSystem):
 
     # Supported diagnostics
     diags_dict = {"heatflux": HeatfluxDiag,
-                  "heatflux_old": HeatfluxDiagOld,
-                  "free_energy": FreeEnergyDiag,
-                  "dWdt": FreeEnergyTimeDerivativeDiag,
-                  "dWdt_coll": FreeEnergyCollisionalLoss,
-                  "dWdt_inj": FreeEnergyInjection,
-                  "linear_spectrum": LinearSpectrumDiag}
+                  "free_energy": FreeEnergyDiag}
 
     def setup(self):
         """Prepares the system for the solver."""
