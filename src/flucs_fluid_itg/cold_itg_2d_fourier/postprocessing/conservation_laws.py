@@ -7,7 +7,7 @@ from flucs.postprocessing import FlucsPostProcessing
 
 def free_energy_check(post):
     # Get valid files for the specified variable
-    nc_paths = post.get_valid_files("dWdt")
+    nc_paths = post.get_valid_files("free_energy/dWdt")
 
     # Iterate over output files
     for index, nc_path in enumerate(nc_paths):
@@ -15,15 +15,15 @@ def free_energy_check(post):
         # Separate figure for each output
         fig, (ax, ax_error) = plt.subplots(2, 1, layout='constrained')
 
-        figure_name = f"dWdt_check: {pl.Path(nc_path)}"
+        figure_name = f"free_energy_check_{pl.Path(nc_path).parent.name}"
         fig.canvas.manager.set_window_title(figure_name)
 
         # Read data from netCDF file
         time, boundaries = post.load_netcdf_variable(nc_path, "time")
         dt, _ = post.load_netcdf_variable(nc_path, "dt")
-        dWdt, _ = post.load_netcdf_variable(nc_path, "dWdt")
-        injection, _ = post.load_netcdf_variable(nc_path, "dWdt_inj")
-        dissipation, _ = post.load_netcdf_variable(nc_path, "dWdt_coll")
+        dWdt, _ = post.load_netcdf_variable(nc_path, "free_energy/dWdt")
+        injection, _ = post.load_netcdf_variable(nc_path, "free_energy/dWdt_inj")
+        dissipation, _ = post.load_netcdf_variable(nc_path, "free_energy/dWdt_coll")
 
         for index in boundaries:
             ax.axvline(time[index], color='k', linestyle="dotted")
