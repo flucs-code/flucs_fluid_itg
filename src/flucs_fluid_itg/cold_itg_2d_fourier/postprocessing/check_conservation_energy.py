@@ -4,8 +4,8 @@ import pathlib as pl
 import matplotlib.pyplot as plt
 from flucs.postprocessing import FlucsPostProcessing
 
-
 def free_energy_check(post):
+
     # Get valid files for the specified variable
     nc_paths = post.get_valid_files("free_energy/dWdt")
 
@@ -13,41 +13,46 @@ def free_energy_check(post):
     for index, nc_path in enumerate(nc_paths):
 
         # Separate figure for each output
-        fig, (ax, ax_error) = plt.subplots(2, 1, layout='constrained')
+        fig, axs = plt.subplots(3, 1, layout='constrained', sharex=True)
+        ax_energy, ax_balance, ax_error = axs
 
-        figure_name = f"free_energy_check_{pl.Path(nc_path).parent.name}"
+        # Set figure title
+        figure_name = f"check_conservation_energy_{pl.Path(nc_path).parent.name}"
         fig.canvas.manager.set_window_title(figure_name)
 
         # Read data from netCDF file
         time, boundaries = post.load_netcdf_variable(nc_path, "time")
         dt, _ = post.load_netcdf_variable(nc_path, "dt")
+        free_energy, _ = post.load_netcdf_variable(nc_path, "free_energy/W")
         dWdt, _ = post.load_netcdf_variable(nc_path, "free_energy/dWdt")
         injection, _ = post.load_netcdf_variable(nc_path, "free_energy/dWdt_inj")
         dissipation, _ = post.load_netcdf_variable(nc_path, "free_energy/dWdt_coll")
 
-        for index in boundaries:
-            ax.axvline(time[index], color='k', linestyle="dotted")
-            ax_error.axvline(time[index], color='k', linestyle="dotted")
+        # Add vertical lines to mark restart boundaries
+        for ax in axs:
+            for index in boundaries:
+                ax.axvline(time[index], color='black', linestyle="dotted")
 
-        # Plot data
-        ax.plot(time, dWdt,
-                label="dW/dt", linewidth=1.5, color='k', linestyle='solid')
-        ax.plot(time, injection, label="injection", linewidth=1.5, color='r', linestyle='solid')
-        ax.plot(time, dissipation, label="dissipation", linewidth=1.5, color='b', linestyle='solid')
-        ax.plot(time, injection + dissipation, label="sum of inj and diss", linewidth=1.5, color='k', linestyle='dashed')
+        # Plot free energy
+        ax_energy.plot(time, free_energy, label="W (free energy)", linewidth=1.5, color='black')
 
+        # Plot free-energy balance
+        ax_balance.plot(time, dWdt, label="dW/dt", linewidth=1.5, color='black', linestyle='solid')
+        ax_balance.plot(time, injection, label="Injection", linewidth=1.5, color='red', linestyle='solid')
+        ax_balance.plot(time, dissipation, label="Dissipation", linewidth=1.5, color='blue', linestyle='solid')
+        ax_balance.plot(time, injection + dissipation, label="Injection + dissipation", linewidth=1.5, color='black', linestyle='dashed')
+
+        # Plot error normalised to the timestep
         error = (dWdt - injection - dissipation)/dt
-        ax_error.plot(time[1:], error[1:], label="error / dt", linewidth=1.5, color='k')
+        ax_error.plot(time[1:], np.abs(error[1:]), label="Error / dt", linewidth=1.5, color='black')
 
         # Setting plot options
-        ax.set_xlabel(r"$(2c_s/L_B)t$")
-        ax_error.set_xlabel(r"$(2c_s/L_B)t$")
-
-        ax.set_xlim(np.min(time), np.max(time))
         ax_error.set_xlim(np.min(time), np.max(time))
-        # ax.set_ylim(ymin=0.0)
+        ax_error.set_xlabel(r"$(2c_s/L_B)t$")
+        ax_error.set_yscale("log")
 
-        ax.legend()
+        ax_energy.legend()
+        ax_balance.legend(ncols=2)
         ax_error.legend()
 
         # Save figures if required

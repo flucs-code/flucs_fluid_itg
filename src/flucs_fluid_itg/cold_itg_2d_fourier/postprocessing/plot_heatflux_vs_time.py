@@ -8,7 +8,7 @@ from flucs.postprocessing import FlucsPostProcessing
 def plot_heatflux_vs_time(post):
 
     # Get valid files for the specified variable 
-    nc_paths = post.get_valid_files("heatflux")
+    nc_paths = post.get_valid_files("heatflux/heatflux")
 
     # Initialise plotting
     fig, ax = plt.subplots(1, 1, layout='constrained')

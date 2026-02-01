@@ -1,7 +1,9 @@
 import cupy as cp
 import numpy as np
-
 from flucs.diagnostic import FlucsDiagnostic, FlucsDiagnosticVariable
+#TODO remove these when coding optimisation wrapper
+BLOCK_SIZE = int(256)
+THREADS_PER_WARP = int(32) 
 
 class HeatfluxDiag(FlucsDiagnostic):
     name = "heatflux"
@@ -35,15 +37,15 @@ class HeatfluxDiag(FlucsDiagnostic):
 
         self.heatflux_kx_kernel(
                 (self.system.nx,),
-                (256,),
+                (BLOCK_SIZE,),
                 (phi, T, self.temp),
-                shared_mem=32 * self.system.complex().nbytes)
+                shared_mem=THREADS_PER_WARP * self.system.complex().nbytes)
 
         self.last_axis_sum_nx_kernel(
                 (1,),
-                (256,),
+                (BLOCK_SIZE,),
                 (self.temp, self.result),
-                shared_mem=32 * self.system.complex().nbytes)
+                shared_mem=THREADS_PER_WARP * self.system.complex().nbytes)
 
         self.vars["heatflux"].data_cache.append(-self.result.item().real)
 
@@ -116,15 +118,15 @@ class FreeEnergyDiag(FlucsDiagnostic):
 
         self.free_energy_kx_kernel(
                 (self.system.nx,),
-                (256,),
+                (BLOCK_SIZE,),
                 (T, self.real_temp),
-                shared_mem=32 * self.system.float().nbytes)
+                shared_mem=THREADS_PER_WARP * self.system.float().nbytes)
 
         self.real_last_axis_sum_nx_kernel(
                 (1,),
-                (256,),
+                (BLOCK_SIZE,),
                 (self.real_temp, self.real_result),
-                shared_mem=32 * self.system.float().nbytes)
+                shared_mem=THREADS_PER_WARP * self.system.float().nbytes)
 
         self.save_data("W", self.real_result.get().item())
 
@@ -133,15 +135,15 @@ class FreeEnergyDiag(FlucsDiagnostic):
 
         self.dW_kx_kernel(
                 (self.system.nx,),
-                (256,),
+                (BLOCK_SIZE,),
                 (T, T_prev, self.real_temp),
-                shared_mem=32 * self.system.float().nbytes)
+                shared_mem=THREADS_PER_WARP * self.system.float().nbytes)
 
         self.real_last_axis_sum_nx_kernel(
                 (1,),
-                (256,),
+                (BLOCK_SIZE,),
                 (self.real_temp, self.real_result),
-                shared_mem=32 * self.system.float().nbytes)
+                shared_mem=THREADS_PER_WARP * self.system.float().nbytes)
 
         dWdt = self.real_result.get().item() / self.system.current_dt
         self.save_data("dWdt", dWdt)
@@ -149,15 +151,15 @@ class FreeEnergyDiag(FlucsDiagnostic):
         # dW/dt_coll
         self.free_energy_collisional_loss_kx_kernel(
                 (self.system.nx,),
-                (256,),
+                (BLOCK_SIZE,),
                 (T, self.complex_temp),
-                shared_mem=32 * self.system.complex().nbytes)
+                shared_mem=THREADS_PER_WARP * self.system.complex().nbytes)
 
         self.last_axis_sum_nx_kernel(
                 (1,),
-                (256,),
+                (BLOCK_SIZE,),
                 (self.complex_temp, self.complex_result),
-                shared_mem=32 * self.system.complex().nbytes)
+                shared_mem=THREADS_PER_WARP * self.system.complex().nbytes)
 
         dWdt_coll =  self.complex_result.real.get().item()
         self.save_data("dWdt_coll", dWdt_coll)
@@ -167,15 +169,15 @@ class FreeEnergyDiag(FlucsDiagnostic):
 
         self.heatflux_kx_kernel(
                 (self.system.nx,),
-                (256,),
+                (BLOCK_SIZE,),
                 (phi, T, self.complex_temp),
-                shared_mem=32 * self.system.complex().nbytes)
+                shared_mem=THREADS_PER_WARP * self.system.complex().nbytes)
 
         self.last_axis_sum_nx_kernel(
                 (1,),
-                (256,),
+                (BLOCK_SIZE,),
                 (self.complex_temp, self.complex_result),
-                shared_mem=32 * self.system.complex().nbytes)
+                shared_mem=THREADS_PER_WARP * self.system.complex().nbytes)
 
         dWdt_inj = -self.system.input["parameters.kappaT"] * self.complex_result.get().item().real
         self.save_data("dWdt_inj", dWdt_inj)
