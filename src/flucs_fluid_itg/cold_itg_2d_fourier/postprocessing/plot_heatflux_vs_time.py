@@ -8,7 +8,7 @@ from flucs.postprocessing import FlucsPostProcessing
 def plot_heatflux_vs_time(post):
 
     # Get valid files for the specified variable 
-    nc_paths = post.get_valid_files("heatflux")
+    nc_paths = post.get_valid_files("heatflux/heatflux")
 
     # Initialise plotting
     fig, ax = plt.subplots(1, 1, layout='constrained')
@@ -25,7 +25,7 @@ def plot_heatflux_vs_time(post):
 
         # Read data from netCDF file
         time, _ = post.load_netcdf_variable(nc_path, "time")
-        data, _ = post.load_netcdf_variable(nc_path, "heatflux")
+        data, _ = post.load_netcdf_variable(nc_path, "heatflux/heatflux")
 
         # Plot data
         ax.plot(time, data, label=sim_label, linewidth=1.5, color=sim_color, linestyle='solid')

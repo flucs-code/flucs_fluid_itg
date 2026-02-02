@@ -5,7 +5,6 @@
 // A lot of basic functionality is already implemented here.
 #include "flucs/solvers/fourier/fourier_system.cuh"
 
-
 extern "C" {
 
 // Array for AB3 nonlinear terms
@@ -13,11 +12,17 @@ __constant__ FLUCS_COMPLEX* multistep_nonlinear_terms = NULL;
 
 __device__ void get_linear_matrix(const int index, const FLUCS_FLOAT dt, FLUCS_COMPLEX matrix[2][2]){
     // First, we need to figure out the kx and ky of the mode.
-    const int ikx = index / HALF_NY;
-    const int iky = index % HALF_NY;
+    // const int ikx = index / HALF_NY;
+    // const int iky = index % HALF_NY;
 
-    const FLUCS_FLOAT kx = (ikx < HALF_NX) ? TWOPI_OVER_LX * ikx : TWOPI_OVER_LX * (ikx - NX);
-    const FLUCS_FLOAT ky = TWOPI_OVER_LY * iky;
+    indices3d_t indices = get_indices3d<1, NX, HALF_NY>(index);
+    const int ikx = indices.ikx;
+    const int iky = indices.iky;
+
+    // const FLUCS_FLOAT kx = (ikx < HALF_NX) ? TWOPI_OVER_LX * ikx : TWOPI_OVER_LX * (ikx - NX);
+    // const FLUCS_FLOAT ky = TWOPI_OVER_LY * iky;
+    const FLUCS_FLOAT kx = kx_from_ikx(ikx);
+    const FLUCS_FLOAT ky = ky_from_iky(iky);
 
     const FLUCS_FLOAT kperp2 = kx*kx + ky*ky + (FLUCS_FLOAT)(index == 0);
     const FLUCS_FLOAT eta_inv = (FLUCS_FLOAT)(1.0) / ((FLUCS_FLOAT)(iky > 0) + kperp2);
@@ -46,39 +51,6 @@ __device__ void get_linear_matrix(const int index, const FLUCS_FLOAT dt, FLUCS_C
 }
 
 
-__global__ void zonal_average(const float* __restrict__ input,
-                                  float* __restrict__ output) {
-    extern __shared__ float sdata[];
-
-    const int ix = blockDim.x * blockIdx.x + threadIdx.x;
-    const int iy = blockDim.y * blockIdx.y + threadIdx.y;
-
-    int local_idx = threadIdx.x * blockDim.y + threadIdx.y;
-    if (ix >= PADDED_NX)
-        return;
-
-    if (iy >= PADDED_NY)
-        sdata[local_idx] = 0.0f;
-    else
-        sdata[local_idx] = input[ix * PADDED_NY + iy];
-
-    __syncthreads();
-
-    // Reduce across threads in block
-    for (int stride = blockDim.y / 2; stride > 0; stride >>= 1) {
-        if (threadIdx.y < stride) {
-            int base = threadIdx.x * blockDim.y;
-            sdata[base + threadIdx.y] += sdata[base + threadIdx.y + stride];
-        }
-        __syncthreads();
-    }
-
-    if (threadIdx.y == 0) {
-        atomicAdd(&output[ix], sdata[threadIdx.x * blockDim.y] / PADDED_NY);
-    }
-}
-
-
 __global__ void find_derivatives(const FLUCS_COMPLEX* fields,
                                  FLUCS_COMPLEX* dft_derivatives,
                                  FLUCS_FLOAT* real_dxphi_zonal,
@@ -90,8 +62,12 @@ __global__ void find_derivatives(const FLUCS_COMPLEX* fields,
         return;
 
 
-    const int padded_ikx = padded_index / HALF_PADDED_NY;
-    const int padded_iky = padded_index % HALF_PADDED_NY;
+    // const int padded_ikx = padded_index / HALF_PADDED_NY;
+    // const int padded_iky = padded_index % HALF_PADDED_NY;
+    //
+    indices3d_t padded_indices = get_indices3d<1, PADDED_NX, HALF_PADDED_NY>(padded_index);
+    const int padded_ikx = padded_indices.padded_ikx;
+    const int padded_iky = padded_indices.padded_iky;
 
     // Use this kernel to also zero out real_dxphi_zonal and cfl_rate
     if (padded_iky == 0)
@@ -112,11 +88,18 @@ __global__ void find_derivatives(const FLUCS_COMPLEX* fields,
         return;
     }
     
-    const int ikx = (padded_ikx < HALF_NX) ? padded_ikx : NX - PADDED_NX + padded_ikx;
-    const int index = padded_iky + HALF_NY * ikx;
+    // const int ikx = (padded_ikx < HALF_NX) ? padded_ikx : NX - PADDED_NX + padded_ikx;
+    const int ikx = ikx_from_padded_ikx(padded_ikx);
 
-    const FLUCS_FLOAT kx = (ikx < HALF_NX) ? TWOPI_OVER_LX * ikx : TWOPI_OVER_LX * (ikx - NX);
-    const FLUCS_FLOAT ky = TWOPI_OVER_LY * padded_iky;
+    // padded_iky and iky are the same for nonzero modes
+    // const int index = padded_iky + HALF_NY * ikx;
+    const int index = index_from_3d<1, NX, HALF_NY>(0, ikx, padded_iky);
+
+    // const FLUCS_FLOAT kx = (ikx < HALF_NX) ? TWOPI_OVER_LX * ikx : TWOPI_OVER_LX * (ikx - NX);
+    // const FLUCS_FLOAT ky = TWOPI_OVER_LY * padded_iky;
+    const FLUCS_FLOAT kx = kx_from_ikx(ikx);
+    const FLUCS_FLOAT ky = ky_from_iky(padded_iky);
+
     const FLUCS_FLOAT ky2minuskx2 = ky*ky - kx*kx;
     const FLUCS_FLOAT minus_kxky = -kx*ky;
 
@@ -139,16 +122,6 @@ __global__ void find_derivatives(const FLUCS_COMPLEX* fields,
         = phi + T;
 }
 
-__device__ float atomicMaxFloat(float* addr, float value) {
-    int* address_as_int = (int*) addr;
-    int old = *address_as_int, assumed;
-    do {
-        assumed = old;
-        old = atomicCAS(address_as_int, assumed,
-                        __float_as_int(fmaxf(value, __int_as_float(assumed))));
-    } while (assumed != old);
-    return __int_as_float(old);
-}
 
 __global__ void find_nonlinear_bits(const FLUCS_FLOAT* real_derivatives,
                                     const FLUCS_FLOAT* real_dxphi_zonal,
@@ -167,6 +140,7 @@ __global__ void find_nonlinear_bits(const FLUCS_FLOAT* real_derivatives,
     // cfl_array[real_index] = cfl;
 
     // Find max CFL using shared memory
+    // TODO: Could we speed this up by reducing over warps?
     cfl_shared[threadIdx.x] = cfl;
     __syncthreads();
 
@@ -214,14 +188,23 @@ __device__ void add_nonlinear_terms(const int index,
                                     const FLUCS_FLOAT AB2,
                                     const FLUCS_COMPLEX* dft_bits,
                                     FLUCS_COMPLEX* rhs_fields){
-    const int ikx = index / HALF_NY;
-    const int iky = index % HALF_NY;
+    // const int ikx = index / HALF_NY;
+    // const int iky = index % HALF_NY;
 
-    const FLUCS_FLOAT kx = (ikx < HALF_NX) ? TWOPI_OVER_LX * ikx : TWOPI_OVER_LX * (ikx - NX);
-    const int ikx_padded = (ikx < HALF_NX) ? ikx : PADDED_NX - NX + ikx;
-    const FLUCS_FLOAT ky = TWOPI_OVER_LY * iky;
+    indices3d_t indices = get_indices3d<1, NX, HALF_NY>(index);
+    const int ikx = indices.ikx;
+    const int iky = indices.iky;
 
-    const int padded_index = HALF_PADDED_NY*ikx_padded + iky;
+    // const FLUCS_FLOAT kx = (ikx < HALF_NX) ? TWOPI_OVER_LX * ikx : TWOPI_OVER_LX * (ikx - NX);
+    // const FLUCS_FLOAT ky = TWOPI_OVER_LY * iky;
+    const FLUCS_FLOAT kx = kx_from_ikx(ikx);
+    const FLUCS_FLOAT ky = ky_from_iky(iky);
+
+    // const int ikx_padded = (ikx < HALF_NX) ? ikx : PADDED_NX - NX + ikx;
+    const int padded_ikx = padded_ikx_from_ikx(ikx);
+
+    // const int padded_index = HALF_PADDED_NY * padded_ikx + iky;
+    const int padded_index = index_from_3d<1, PADDED_NX, HALF_PADDED_NY>(0, padded_ikx, iky);
 
 
     const FLUCS_FLOAT kx2mky2 = kx*kx - ky*ky;
@@ -256,6 +239,63 @@ __device__ void add_nonlinear_terms(const int index,
                            +AB2*multistep_nonlinear_terms[multistep_index_2 + HALFUNPADDEDSIZE]);
 
     multistep_nonlinear_terms[multistep_index_0 + HALFUNPADDEDSIZE] = TNL;
+}
+
+__global__
+void heatflux_kx(
+    const FLUCS_COMPLEX* phi,
+    const FLUCS_COMPLEX* T,
+    FLUCS_COMPLEX* output){
+
+    multiply_and_sum_last_axis<HALF_NY, true>(
+            COMPLEX_ONE,
+            output,
+            Dy_Functor{phi},
+            CC_Functor{T}
+        );
+
+}
+
+__global__
+void dW_kx(
+    const FLUCS_COMPLEX* T_now,
+    const FLUCS_COMPLEX* T_prev,
+    FLUCS_FLOAT* output){
+
+    add_and_sum_last_axis<HALF_NY, true>(
+            (FLUCS_FLOAT)0.5,
+            output,
+            Abs2_Functor{T_now, FLOAT_ONE},
+            Abs2_Functor{T_prev, -FLOAT_ONE}
+        );
+
+}
+
+__global__
+void free_energy_kx(
+    const FLUCS_COMPLEX* T,
+    FLUCS_FLOAT* output){
+
+    add_and_sum_last_axis<HALF_NY, true>(
+            (FLUCS_FLOAT)0.5,
+            output,
+            Abs2_Functor{T, FLOAT_ONE}
+        );
+
+}
+
+__global__
+void free_energy_collisional_loss_kx(
+    const FLUCS_COMPLEX* T,
+    FLUCS_COMPLEX* output){
+
+    multiply_and_sum_last_axis<HALF_NY, true>(
+            FLUCS_COMPLEX(CHI, 0),
+            output,
+            DelPerp2_Functor{T},
+            CC_Functor{T}
+        );
+
 }
 
 } // extern "C"
