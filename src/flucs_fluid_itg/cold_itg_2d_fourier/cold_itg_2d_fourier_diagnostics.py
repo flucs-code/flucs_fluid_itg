@@ -88,12 +88,27 @@ class FreeEnergyDiag(FlucsDiagnostic):
         ))
 
         self.add_var(FlucsDiagnosticVariable(
+            name="dWdt_hyper_perp", 
+            shape=(), 
+            dimensions={}, 
+            is_complex=False
+            )
+        )
+
+        self.add_var(FlucsDiagnosticVariable(
+            name="dWdt_hyper_para", 
+            shape=(), 
+            dimensions={}, 
+            is_complex=False
+            )
+        )
+
+        self.add_var(FlucsDiagnosticVariable(
             name="dWdt_error",
             shape=(),
             dimensions={},
             is_complex=False
         ))
-
 
     def ready(self):
         # Allocate temporary memory
@@ -111,6 +126,12 @@ class FreeEnergyDiag(FlucsDiagnostic):
         self.last_axis_sum_nx_kernel = self.system.cupy_module.get_function("last_axis_sum_nx")
         self.real_last_axis_sum_nx_kernel = self.system.cupy_module.get_function("real_last_axis_sum_nx")
 
+        self.hyperviscosity_perp_magnitude_kernel = (
+            self.system.cupy_module.get_function("hyperviscosity_perp_magnitude")
+        )
+        self.hyperviscosity_para_magnitude_kernel = (
+            self.system.cupy_module.get_function("hyperviscosity_para_magnitude")
+        )
 
     def execute(self):
         # W
@@ -161,7 +182,7 @@ class FreeEnergyDiag(FlucsDiagnostic):
                 (self.complex_temp, self.complex_result),
                 shared_mem=THREADS_PER_WARP * self.system.complex().nbytes)
 
-        dWdt_coll =  self.complex_result.real.get().item()
+        dWdt_coll = self.complex_result.real.get().item()
         self.save_data("dWdt_coll", dWdt_coll)
 
         # dW/dt_inj
@@ -182,4 +203,39 @@ class FreeEnergyDiag(FlucsDiagnostic):
         dWdt_inj = -self.system.input["parameters.kappaT"] * self.complex_result.get().item().real
         self.save_data("dWdt_inj", dWdt_inj)
 
-        self.save_data("dWdt_error", dWdt - dWdt_inj - dWdt_coll)
+        # dW/dt_hyper_perp
+        self.hyperviscosity_perp_magnitude_kernel(
+            (self.system.nx,),
+            (BLOCK_SIZE,),
+            (T, self.real_temp),
+            shared_mem=THREADS_PER_WARP * self.system.float().nbytes)
+
+        self.real_last_axis_sum_nx_kernel(
+            (1,),
+            (BLOCK_SIZE,),
+            (self.real_temp, self.real_result),
+            shared_mem=THREADS_PER_WARP * self.system.float().nbytes)
+
+        dWdt_hyper_perp = -self.real_result.get().item()
+        self.save_data("dWdt_hyper_perp", dWdt_hyper_perp)
+
+        # dW/dt_hyper_para
+        self.hyperviscosity_para_magnitude_kernel(
+            (self.system.nx,),
+            (BLOCK_SIZE,),
+            (T, self.real_temp),
+            shared_mem=THREADS_PER_WARP * self.system.float().nbytes)
+
+        self.real_last_axis_sum_nx_kernel(
+            (1,),
+            (BLOCK_SIZE,),
+            (self.real_temp, self.real_result),
+            shared_mem=THREADS_PER_WARP * self.system.float().nbytes)
+
+        dWdt_hyper_para = -self.real_result.get().item()
+        self.save_data("dWdt_hyper_para", dWdt_hyper_para)
+
+        self.save_data(
+            "dWdt_error",
+            dWdt - dWdt_inj - dWdt_coll - dWdt_hyper_perp - dWdt_hyper_para,
+        )
