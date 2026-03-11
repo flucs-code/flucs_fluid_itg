@@ -30,10 +30,10 @@ def free_energy_check(post):
         injection, _ = post.load_netcdf_variable(nc_path, "free_energy/dWdt_inj")
         dissipation, _ = post.load_netcdf_variable(nc_path, "free_energy/dWdt_coll")
 
-        if "free_energy/dWdt_hypervisc_perp" in variables:
-            dissipation += post.load_netcdf_variable(nc_path, "free_energy/dWdt_hypervisc_perp")[0]
-        if "free_energy/dWdt_hypervisc_par" in variables:
-            dissipation += post.load_netcdf_variable(nc_path, "free_energy/dWdt_hypervisc_par")[0]
+        if "free_energy/dWdt_hyperdissipation_perp" in variables:
+            dissipation += post.load_netcdf_variable(nc_path, "free_energy/dWdt_hyperdissipation_perp")[0]
+        if "free_energy/dWdt_hyperdissipation_par" in variables:
+            dissipation += post.load_netcdf_variable(nc_path, "free_energy/dWdt_hyperdissipation_par")[0]
 
         # Add vertical lines to mark restart boundaries
         for ax in axs:

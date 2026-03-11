@@ -88,7 +88,7 @@ class FreeEnergyDiag(FlucsDiagnostic):
         ))
 
         self.add_var(FlucsDiagnosticVariable(
-            name="dWdt_hypervisc_perp", 
+            name="dWdt_hyperdissipation_perp",
             shape=(), 
             dimensions={}, 
             is_complex=False
@@ -96,7 +96,7 @@ class FreeEnergyDiag(FlucsDiagnostic):
         )
 
         self.add_var(FlucsDiagnosticVariable(
-            name="dWdt_hypervisc_par", 
+            name="dWdt_hyperdissipation_par",
             shape=(), 
             dimensions={}, 
             is_complex=False
@@ -126,11 +126,11 @@ class FreeEnergyDiag(FlucsDiagnostic):
         self.last_axis_sum_nx_kernel = self.system.cupy_module.get_function("last_axis_sum_nx")
         self.real_last_axis_sum_nx_kernel = self.system.cupy_module.get_function("real_last_axis_sum_nx")
 
-        self.hypervisc_perp_magnitude_kernel = (
-            self.system.cupy_module.get_function("hypervisc_perp_magnitude")
+        self.hyperdissipation_perp_magnitude_kernel = (
+            self.system.cupy_module.get_function("hyperdissipation_perp_magnitude")
         )
-        self.hypervisc_par_magnitude_kernel = (
-            self.system.cupy_module.get_function("hypervisc_par_magnitude")
+        self.hyperdissipation_par_magnitude_kernel = (
+            self.system.cupy_module.get_function("hyperdissipation_par_magnitude")
         )
 
     def execute(self):
@@ -203,8 +203,8 @@ class FreeEnergyDiag(FlucsDiagnostic):
         dWdt_inj = -self.system.input["parameters.kappaT"] * self.complex_result.get().item().real
         self.save_data("dWdt_inj", dWdt_inj)
 
-        # dW/dt_hypervisc_perp
-        self.hypervisc_perp_magnitude_kernel(
+        # dW/dt_hyperdissipation_perp
+        self.hyperdissipation_perp_magnitude_kernel(
             (self.system.nx,),
             (BLOCK_SIZE,),
             (T, self.real_temp),
@@ -216,11 +216,11 @@ class FreeEnergyDiag(FlucsDiagnostic):
             (self.real_temp, self.real_result),
             shared_mem=THREADS_PER_WARP * self.system.float().nbytes)
 
-        dWdt_hypervisc_perp = -self.real_result.get().item()
-        self.save_data("dWdt_hypervisc_perp", dWdt_hypervisc_perp)
+        dWdt_hyperdissipation_perp = -self.real_result.get().item()
+        self.save_data("dWdt_hyperdissipation_perp", dWdt_hyperdissipation_perp)
 
-        # dW/dt_hypervisc_par
-        self.hypervisc_par_magnitude_kernel(
+        # dW/dt_hyperdissipation_par
+        self.hyperdissipation_par_magnitude_kernel(
             (self.system.nx,),
             (BLOCK_SIZE,),
             (T, self.real_temp),
@@ -232,10 +232,10 @@ class FreeEnergyDiag(FlucsDiagnostic):
             (self.real_temp, self.real_result),
             shared_mem=THREADS_PER_WARP * self.system.float().nbytes)
 
-        dWdt_hypervisc_par = -self.real_result.get().item()
-        self.save_data("dWdt_hypervisc_par", dWdt_hypervisc_par)
+        dWdt_hyperdissipation_par = -self.real_result.get().item()
+        self.save_data("dWdt_hyperdissipation_par", dWdt_hyperdissipation_par)
 
         self.save_data(
             "dWdt_error",
-            dWdt - dWdt_inj - dWdt_coll - dWdt_hypervisc_perp - dWdt_hypervisc_par,
+            dWdt - dWdt_inj - dWdt_coll - dWdt_hyperdissipation_perp - dWdt_hyperdissipation_par,
         )
