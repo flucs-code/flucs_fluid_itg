@@ -96,7 +96,23 @@ class FreeEnergyDiag(FlucsDiagnostic):
         )
 
         self.add_var(FlucsDiagnosticVariable(
-            name="dWdt_hyperdissipation_par",
+            name="dWdt_hyperdissipation_kx",
+            shape=(), 
+            dimensions={}, 
+            is_complex=False
+            )
+        )
+
+        self.add_var(FlucsDiagnosticVariable(
+            name="dWdt_hyperdissipation_ky",
+            shape=(), 
+            dimensions={}, 
+            is_complex=False
+            )
+        )
+
+        self.add_var(FlucsDiagnosticVariable(
+            name="dWdt_hyperdissipation_kz",
             shape=(), 
             dimensions={}, 
             is_complex=False
@@ -126,12 +142,12 @@ class FreeEnergyDiag(FlucsDiagnostic):
         self.last_axis_sum_nx_kernel = self.system.cupy_module.get_function("last_axis_sum_nx")
         self.real_last_axis_sum_nx_kernel = self.system.cupy_module.get_function("real_last_axis_sum_nx")
 
-        self.hyperdissipation_perp_magnitude_kernel = (
-            self.system.cupy_module.get_function("hyperdissipation_perp_magnitude")
-        )
-        self.hyperdissipation_par_magnitude_kernel = (
-            self.system.cupy_module.get_function("hyperdissipation_par_magnitude")
-        )
+        self.hyperdissipation_magnitude_kernels = {
+            "perp": self.system.cupy_module.get_function("hyperdissipation_perp_magnitude"),
+            "kx": self.system.cupy_module.get_function("hyperdissipation_kx_magnitude"),
+            "ky": self.system.cupy_module.get_function("hyperdissipation_ky_magnitude"),
+            "kz": self.system.cupy_module.get_function("hyperdissipation_kz_magnitude"),
+        }
 
     def execute(self):
         # W
@@ -203,39 +219,30 @@ class FreeEnergyDiag(FlucsDiagnostic):
         dWdt_inj = -self.system.input["parameters.kappaT"] * self.complex_result.get().item().real
         self.save_data("dWdt_inj", dWdt_inj)
 
-        # dW/dt_hyperdissipation_perp
-        self.hyperdissipation_perp_magnitude_kernel(
-            (self.system.nx,),
-            (BLOCK_SIZE,),
-            (T, self.real_temp),
-            shared_mem=THREADS_PER_WARP * self.system.float().nbytes)
+        # Hyperdissipation
+        dWdt_hyperdissipation_total = 0.0
+        for component, kernel in self.hyperdissipation_magnitude_kernels.items():
 
-        self.real_last_axis_sum_nx_kernel(
-            (1,),
-            (BLOCK_SIZE,),
-            (self.real_temp, self.real_result),
-            shared_mem=THREADS_PER_WARP * self.system.float().nbytes)
+            kernel(
+                (self.system.nx,),
+                (BLOCK_SIZE,),
+                (T, self.real_temp),
+                shared_mem=THREADS_PER_WARP * self.system.float().nbytes)
 
-        dWdt_hyperdissipation_perp = -self.real_result.get().item()
-        self.save_data("dWdt_hyperdissipation_perp", dWdt_hyperdissipation_perp)
+            self.real_last_axis_sum_nx_kernel(
+                (1,),
+                (BLOCK_SIZE,),
+                (self.real_temp, self.real_result),
+                shared_mem=THREADS_PER_WARP * self.system.float().nbytes)
 
-        # dW/dt_hyperdissipation_par
-        self.hyperdissipation_par_magnitude_kernel(
-            (self.system.nx,),
-            (BLOCK_SIZE,),
-            (T, self.real_temp),
-            shared_mem=THREADS_PER_WARP * self.system.float().nbytes)
-
-        self.real_last_axis_sum_nx_kernel(
-            (1,),
-            (BLOCK_SIZE,),
-            (self.real_temp, self.real_result),
-            shared_mem=THREADS_PER_WARP * self.system.float().nbytes)
-
-        dWdt_hyperdissipation_par = -self.real_result.get().item()
-        self.save_data("dWdt_hyperdissipation_par", dWdt_hyperdissipation_par)
+            dWdt_hyperdissipation_component = -self.real_result.get().item()
+            self.save_data(
+                f"dWdt_hyperdissipation_{component}",
+                dWdt_hyperdissipation_component
+            )
+            dWdt_hyperdissipation_total += dWdt_hyperdissipation_component
 
         self.save_data(
             "dWdt_error",
-            dWdt - dWdt_inj - dWdt_coll - dWdt_hyperdissipation_perp - dWdt_hyperdissipation_par,
+            dWdt - dWdt_inj - dWdt_coll - dWdt_hyperdissipation_total,
         )
