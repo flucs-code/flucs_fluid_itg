@@ -21,12 +21,19 @@ def free_energy_check(post):
         fig.canvas.manager.set_window_title(figure_name)
 
         # Read data from netCDF file
+        variables = post.get_netcdf_variables(nc_path)
+
         time, boundaries = post.load_netcdf_variable(nc_path, "time")
         dt, _ = post.load_netcdf_variable(nc_path, "dt")
         free_energy, _ = post.load_netcdf_variable(nc_path, "free_energy/W")
         dWdt, _ = post.load_netcdf_variable(nc_path, "free_energy/dWdt")
         injection, _ = post.load_netcdf_variable(nc_path, "free_energy/dWdt_inj")
         dissipation, _ = post.load_netcdf_variable(nc_path, "free_energy/dWdt_coll")
+
+        # Add hyperdissipation
+        for variable in variables:
+            if variable.startswith("free_energy/dWdt_hyperdissipation_"):
+                dissipation += post.load_netcdf_variable(nc_path, variable)[0]
 
         # Add vertical lines to mark restart boundaries
         for ax in axs:
