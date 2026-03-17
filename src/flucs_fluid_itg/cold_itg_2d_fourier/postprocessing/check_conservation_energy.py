@@ -23,12 +23,12 @@ def free_energy_check(post):
         # Read data from netCDF file
         variables = post.get_netcdf_variables(nc_path)
 
-        time, boundaries = post.load_netcdf_variable(nc_path, "time")
-        dt, _ = post.load_netcdf_variable(nc_path, "dt")
-        free_energy, _ = post.load_netcdf_variable(nc_path, "free_energy/W")
-        dWdt, _ = post.load_netcdf_variable(nc_path, "free_energy/dWdt")
-        injection, _ = post.load_netcdf_variable(nc_path, "free_energy/dWdt_inj")
-        dissipation, _ = post.load_netcdf_variable(nc_path, "free_energy/dWdt_coll")
+        time, boundaries, _ = post.load_netcdf_variable(nc_path, "time")
+        dt, _, _ = post.load_netcdf_variable(nc_path, "dt")
+        free_energy, _, _ = post.load_netcdf_variable(nc_path, "free_energy/W")
+        dWdt, _, _ = post.load_netcdf_variable(nc_path, "free_energy/dWdt")
+        injection, _, _ = post.load_netcdf_variable(nc_path, "free_energy/dWdt_inj")
+        dissipation, _, _ = post.load_netcdf_variable(nc_path, "free_energy/dWdt_coll")
 
         # Add hyperdissipation
         for variable in variables:

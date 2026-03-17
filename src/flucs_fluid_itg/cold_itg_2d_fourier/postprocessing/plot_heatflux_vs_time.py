@@ -24,8 +24,8 @@ def plot_heatflux_vs_time(post):
         sim_color = plt.cm.rainbow(np.linspace(0, 1, len(nc_paths)))[index]
 
         # Read data from netCDF file
-        time, _ = post.load_netcdf_variable(nc_path, "time")
-        data, _ = post.load_netcdf_variable(nc_path, "heatflux/heatflux")
+        time, _, _ = post.load_netcdf_variable(nc_path, "time")
+        data, _, _ = post.load_netcdf_variable(nc_path, "heatflux/heatflux")
 
         # Plot data
         ax.plot(time, data, label=sim_label, linewidth=1.5, color=sim_color, linestyle='solid')
