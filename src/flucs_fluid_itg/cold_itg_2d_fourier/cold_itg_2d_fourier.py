@@ -3,17 +3,16 @@ ITG system. The nonlinear term is handled explicitly using the Adams-Bashforth
 3-step method.
 
 """
+from typing import ClassVar
 
 import cupy as cp
 import numpy as np
 from cupy.cuda import cufft
-
-from .cold_itg_2d_fourier_diagnostics import HeatfluxDiag
-from .cold_itg_2d_fourier_diagnostics import FreeEnergyDiag
-
-from flucs.utilities.cupy import cupy_set_device_pointer
+from flucs.diagnostic import FlucsDiagnostic
 from flucs.solvers.fourier.fourier_system import FourierSystem
-from flucs.solvers.fourier.fourier_system_diagnostics import LinearSpectrumDiag
+from flucs.utilities.cupy import cupy_set_device_pointer
+
+from .cold_itg_2d_fourier_diagnostics import FreeEnergyDiag, HeatfluxDiag
 
 
 class ColdITG2DFourier(FourierSystem):
@@ -46,24 +45,20 @@ class ColdITG2DFourier(FourierSystem):
     zonal_average_shared_mem: int
     nonlinear_bits_shared_mem: int
 
-    # CUDA FFTs
-    fft_c2r_plan_type: int
-    fft_r2c_plan_type: int
-
     find_derivatives_kernel: cp.RawKernel
     find_nonlinear_bits_kernel: cp.RawKernel
     zonal_average_kernel: cp.RawKernel
 
     # Supported diagnostics
-    diags_dict = {"heatflux": HeatfluxDiag,
-                  "free_energy": FreeEnergyDiag}
+    diags: ClassVar[set[type[FlucsDiagnostic]]] = {
+        HeatfluxDiag, FreeEnergyDiag
+    }
 
-    def setup(self):
+    def _setup_system(self):
         """Prepares the system for the solver."""
 
         self.allocate_memory()
-        # self.setup_kernels()
-        super().setup()
+        super()._setup_system()
 
     def ready(self):
         # Anything system-specific goes here
@@ -162,13 +157,6 @@ class ColdITG2DFourier(FourierSystem):
 
             self.real_dxphi_zonal = cp.zeros((self.padded_nx,),
                                              dtype=self.float)
-
-            if self.input["setup.precision"] == "single":
-                self.fft_c2r_plan_type = cufft.CUFFT_C2R
-                self.fft_r2c_plan_type = cufft.CUFFT_R2C
-            else:
-                self.fft_c2r_plan_type = cufft.CUFFT_Z2D
-                self.fft_r2c_plan_type = cufft.CUFFT_D2Z
 
             self.plan_c2r = cufft.PlanNd(
                 shape=tuple([self.padded_nx, self.padded_ny]),
