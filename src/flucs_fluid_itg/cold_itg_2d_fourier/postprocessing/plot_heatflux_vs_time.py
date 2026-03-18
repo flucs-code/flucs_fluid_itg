@@ -39,8 +39,8 @@ def plot_heatflux_vs_time(post):
 
     ax.legend()
 
-    # Save figures if required
-    post.save(fig, name=figure_name, suffix="png", save_kwargs={"dpi": 300, "close": True})
+    # Save figure if required
+    post.save(fig, name=figure_name, suffix="png", save_kwargs={"dpi": 300})
 
     plt.show()
 

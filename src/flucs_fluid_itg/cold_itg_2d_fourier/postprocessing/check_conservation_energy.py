@@ -63,10 +63,9 @@ def free_energy_check(post):
         ax_error.legend()
 
         # Save figures if required
-        post.save(fig, name=figure_name, suffix="png", save_kwargs={"dpi": 300, "close": True})
+        post.save(fig, name=figure_name, suffix="png", save_kwargs={"dpi": 300})
 
-        plt.show()
-
+    plt.show()
 
     return
 
