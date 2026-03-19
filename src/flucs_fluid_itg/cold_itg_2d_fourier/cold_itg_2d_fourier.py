@@ -105,7 +105,7 @@ class ColdITG2DFourier(FourierSystem):
 
         # when running linearly, need something to pass to the kernels
         # this is unused
-        self.dft_bits = cp.zeros(1, dtype=self.complex)
+        self.dft_derivatives_and_bits = cp.zeros(1, dtype=self.complex)
 
         if not self.input["setup.linear"]:
             # For the nonlinear terms, we need to keep terms at the current
@@ -124,13 +124,14 @@ class ColdITG2DFourier(FourierSystem):
             # 2 (dx^2 - dy^2) phi,
             # 3 dxdyphi
             # 4 p
-            self.dft_derivatives = cp.zeros([5, self.padded_nx,
-                                             self.half_padded_ny],
-                                            dtype=self.complex)
-            self.real_derivatives = cp.zeros([5, self.padded_nx,
-                                              self.padded_ny],
-                                             dtype=self.float)
+            self.dft_derivatives_and_bits = cp.zeros([5, self.padded_nx,
+                                                      self.half_padded_ny],
+                                                     dtype=self.complex)
+            self.real_derivatives_and_bits = cp.zeros([5, self.padded_nx,
+                                                       self.padded_ny],
+                                                      dtype=self.float)
 
+            # The above memory is reused for the NL bits.
             # These 'NL bits' are the terms which are calculated in real space.
             # They are transformed back to Fourier space, where any additional
             # derivatives are taken by multiplying the NL bits by the
@@ -142,10 +143,13 @@ class ColdITG2DFourier(FourierSystem):
             # 4 dyphi * p
             # E.g., we calculate {phi, T} by calculating
             # {phi, p} = dy (dxphi * u) - dx (dyphi * u)
-            self.dft_bits = cp.zeros([5, self.padded_nx, self.half_padded_ny],
-                                     dtype=self.complex)
-            self.real_bits = cp.zeros([5, self.padded_nx, self.padded_ny],
-                                      dtype=self.float)
+
+            # Reuse memory from dft_derivatives
+            # Still need dft_bits as FourierSystem expects it
+            self.dft_bits = self.dft_derivatives_and_bits
+
+            # self.real_bits = cp.zeros([5, self.padded_nx, self.padded_ny],
+            #                           dtype=self.float)
 
             self.cfl_rate = cp.zeros([1], dtype=self.float)
 
@@ -153,7 +157,7 @@ class ColdITG2DFourier(FourierSystem):
             # We need this for computing the zonal flow.
             self.real_dxphi = cp.ndarray((self.padded_nx, self.padded_ny),
                                          dtype=self.float,
-                                         memptr=self.real_derivatives.data)
+                                         memptr=self.real_derivatives_and_bits.data)
 
             self.real_dxphi_zonal = cp.zeros((self.padded_nx,),
                                              dtype=self.float)
@@ -245,12 +249,12 @@ class ColdITG2DFourier(FourierSystem):
         self.find_derivatives_kernel((self.half_padded_cuda_grid_size,),
                                      (self.cuda_block_size,),
                                      (self.fields[self.current_step % 2 - 1],
-                                      self.dft_derivatives,
+                                      self.dft_derivatives_and_bits,
                                       self.real_dxphi_zonal,
                                       self.cfl_rate))
 
-        self.plan_c2r.fft(self.dft_derivatives,
-                          self.real_derivatives,
+        self.plan_c2r.fft(self.dft_derivatives_and_bits,
+                          self.real_derivatives_and_bits,
                           cufft.CUFFT_INVERSE)
 
         # self.real_derivatives = cp.fft.irfftn(self.dft_derivatives, s=(self.padded_nx, self.padded_ny), norm="forward")
@@ -264,12 +268,13 @@ class ColdITG2DFourier(FourierSystem):
         self.find_nonlinear_bits_kernel(
             (self.full_padded_cuda_grid_size,),
             (self.cuda_block_size,),
-            (self.real_derivatives, self.real_dxphi_zonal,
-             self.real_bits, self.cfl_rate),
+            (self.real_derivatives_and_bits,
+             self.real_dxphi_zonal,
+             self.cfl_rate),
             shared_mem=self.nonlinear_bits_shared_mem
         )
 
-        self.plan_r2c.fft(self.real_bits, self.dft_bits, cufft.CUFFT_FORWARD)
+        self.plan_r2c.fft(self.real_derivatives_and_bits, self.dft_derivatives_and_bits, cufft.CUFFT_FORWARD)
         # self.dft_bits = cp.fft.rfftn(self.real_bits,
         #                              s=(self.padded_nx, self.padded_ny),
         #                              norm="forward")

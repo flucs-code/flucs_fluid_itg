@@ -123,9 +123,8 @@ __global__ void find_derivatives(const FLUCS_COMPLEX* fields,
 }
 
 
-__global__ void find_nonlinear_bits(const FLUCS_FLOAT* real_derivatives,
+__global__ void find_nonlinear_bits(FLUCS_FLOAT* real_derivatives_and_bits,
                                     const FLUCS_FLOAT* real_dxphi_zonal,
-                                    FLUCS_FLOAT* real_bits,
                                     FLUCS_FLOAT* cfl_rate){
     // Shared memory for CFL calculations
     extern __shared__ float cfl_shared[];
@@ -136,7 +135,7 @@ __global__ void find_nonlinear_bits(const FLUCS_FLOAT* real_derivatives,
     if (!(real_index < PADDEDSIZE))
         return;
 
-    const FLUCS_FLOAT cfl = flucs_fabs(real_derivatives[real_index]) * (NY / LY) + flucs_fabs(real_derivatives[real_index + PADDEDSIZE]) * (NX / LX);
+    const FLUCS_FLOAT cfl = flucs_fabs(real_derivatives_and_bits[real_index]) * (NY / LY) + flucs_fabs(real_derivatives_and_bits[real_index + PADDEDSIZE]) * (NX / LX);
     // cfl_array[real_index] = cfl;
 
     // Find max CFL using shared memory
@@ -160,24 +159,26 @@ __global__ void find_nonlinear_bits(const FLUCS_FLOAT* real_derivatives,
     // index inside the zonal phi array
     const int ix = real_index / PADDED_NY;
 
+    const FLUCS_FLOAT dxphi = real_derivatives_and_bits[real_index];
+    const FLUCS_FLOAT dyphi = real_derivatives_and_bits[real_index + PADDEDSIZE];
+    const FLUCS_FLOAT dx2mdy2phi = real_derivatives_and_bits[real_index + 2*PADDEDSIZE];
+    const FLUCS_FLOAT dxdyphi = real_derivatives_and_bits[real_index + 3*PADDEDSIZE];
+    const FLUCS_FLOAT p = real_derivatives_and_bits[real_index + 4*PADDEDSIZE];
+
     // dxphi_zonal * dyphi
-    real_bits[real_index] = real_dxphi_zonal[ix] * real_derivatives[real_index + PADDEDSIZE];
+    real_derivatives_and_bits[real_index] = real_dxphi_zonal[ix] * dyphi;
 
     // (dx^2 - dy^2)phi * p
-    real_bits[real_index + PADDEDSIZE] =\
-        real_derivatives[real_index + 2*PADDEDSIZE]*real_derivatives[real_index + 4*PADDEDSIZE];
+    real_derivatives_and_bits[real_index + PADDEDSIZE] = dx2mdy2phi * p;
                                         
     // dxdyphi p
-    real_bits[real_index + 2*PADDEDSIZE] =\
-        real_derivatives[real_index + 3*PADDEDSIZE]*real_derivatives[real_index + 4*PADDEDSIZE];
+    real_derivatives_and_bits[real_index + 2*PADDEDSIZE] = dxdyphi * p;
  
     // dxphi p
-    real_bits[real_index + 3*PADDEDSIZE] =\
-        real_derivatives[real_index]*real_derivatives[real_index + 4*PADDEDSIZE];
+    real_derivatives_and_bits[real_index + 3*PADDEDSIZE] = dxphi * p;
 
     // dyphi p
-    real_bits[real_index + 4*PADDEDSIZE] =\
-        real_derivatives[real_index + PADDEDSIZE]*real_derivatives[real_index + 4*PADDEDSIZE];
+    real_derivatives_and_bits[real_index + 4*PADDEDSIZE] = dyphi * p;
 }
 
 __device__ void add_nonlinear_terms(const int index,
