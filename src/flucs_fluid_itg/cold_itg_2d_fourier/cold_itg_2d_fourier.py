@@ -205,21 +205,21 @@ class ColdITG2DFourier(FourierSystem):
 
     def compile_cupy_module(self) -> None:
         # System-specific constants for the kernels
-        self.module_options.define_constant("CHI",
+        self.module_options.define_float("CHI",
                                             self.input["parameters.chi"])
-        self.module_options.define_constant("A_TIMES_CHI",
+        self.module_options.define_float("A_TIMES_CHI",
                                             self.input["parameters.a"]
                                             * self.input["parameters.chi"])
 
-        self.module_options.define_constant("B_TIMES_CHI",
+        self.module_options.define_float("B_TIMES_CHI",
                                             self.input["parameters.b"]
                                             * self.input["parameters.chi"])
 
-        self.module_options.define_constant("KAPPA_T",
+        self.module_options.define_float("KAPPA_T",
                                             self.input["parameters.kappaT"])
-        self.module_options.define_constant("KAPPA_N",
+        self.module_options.define_float("KAPPA_N",
                                             self.input["parameters.kappan"])
-        self.module_options.define_constant("KAPPA_B",
+        self.module_options.define_float("KAPPA_B",
                                             self.input["parameters.kappaB"])
 
         # Call this to compile the module

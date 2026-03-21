@@ -10,14 +10,14 @@ extern "C" {
 // Array for AB3 nonlinear terms
 __constant__ FLUCS_COMPLEX* multistep_nonlinear_terms = NULL;
 
-__device__ void get_linear_matrix(const int index, const FLUCS_FLOAT dt, FLUCS_COMPLEX matrix[2][2]){
+__device__ void get_linear_matrix(const size_t index, const FLUCS_FLOAT dt, FLUCS_COMPLEX matrix[2][2]){
     // First, we need to figure out the kx and ky of the mode.
-    // const int ikx = index / HALF_NY;
-    // const int iky = index % HALF_NY;
+    // const size_t ikx = index / HALF_NY;
+    // const size_t iky = index % HALF_NY;
 
     indices3d_t indices = get_indices3d<1, NX, HALF_NY>(index);
-    const int ikx = indices.ikx;
-    const int iky = indices.iky;
+    const size_t ikx = indices.ikx;
+    const size_t iky = indices.iky;
 
     // const FLUCS_FLOAT kx = (ikx < HALF_NX) ? TWOPI_OVER_LX * ikx : TWOPI_OVER_LX * (ikx - NX);
     // const FLUCS_FLOAT ky = TWOPI_OVER_LY * iky;
@@ -55,19 +55,19 @@ __global__ void find_derivatives(const FLUCS_COMPLEX* fields,
                                  FLUCS_COMPLEX* dft_derivatives,
                                  FLUCS_FLOAT* real_dxphi_zonal,
                                  FLUCS_FLOAT* cfl_rate){
-    const int padded_index = blockDim.x * blockIdx.x + threadIdx.x;
+    const size_t padded_index = blockDim.x * blockIdx.x + threadIdx.x;
 
     // Check if we are within bounds
     if (!(padded_index < HALFPADDEDSIZE))
         return;
 
 
-    // const int padded_ikx = padded_index / HALF_PADDED_NY;
-    // const int padded_iky = padded_index % HALF_PADDED_NY;
+    // const size_t padded_ikx = padded_index / HALF_PADDED_NY;
+    // const size_t padded_iky = padded_index % HALF_PADDED_NY;
     //
     indices3d_t padded_indices = get_indices3d<1, PADDED_NX, HALF_PADDED_NY>(padded_index);
-    const int padded_ikx = padded_indices.padded_ikx;
-    const int padded_iky = padded_indices.padded_iky;
+    const size_t padded_ikx = padded_indices.padded_ikx;
+    const size_t padded_iky = padded_indices.padded_iky;
 
     // Use this kernel to also zero out real_dxphi_zonal and cfl_rate
     if (padded_iky == 0)
@@ -88,12 +88,12 @@ __global__ void find_derivatives(const FLUCS_COMPLEX* fields,
         return;
     }
     
-    // const int ikx = (padded_ikx < HALF_NX) ? padded_ikx : NX - PADDED_NX + padded_ikx;
-    const int ikx = ikx_from_padded_ikx(padded_ikx);
+    // const size_t ikx = (padded_ikx < HALF_NX) ? padded_ikx : NX - PADDED_NX + padded_ikx;
+    const size_t ikx = ikx_from_padded_ikx(padded_ikx);
 
     // padded_iky and iky are the same for nonzero modes
-    // const int index = padded_iky + HALF_NY * ikx;
-    const int index = index_from_3d<1, NX, HALF_NY>(0, ikx, padded_iky);
+    // const size_t index = padded_iky + HALF_NY * ikx;
+    const size_t index = index_from_3d<1, NX, HALF_NY>(0, ikx, padded_iky);
 
     // const FLUCS_FLOAT kx = (ikx < HALF_NX) ? TWOPI_OVER_LX * ikx : TWOPI_OVER_LX * (ikx - NX);
     // const FLUCS_FLOAT ky = TWOPI_OVER_LY * padded_iky;
@@ -129,7 +129,7 @@ __global__ void find_nonlinear_bits(FLUCS_FLOAT* real_derivatives_and_bits,
     // Shared memory for CFL calculations
     extern __shared__ float cfl_shared[];
 
-    const int real_index = blockDim.x * blockIdx.x + threadIdx.x;
+    const size_t real_index = blockDim.x * blockIdx.x + threadIdx.x;
 
     // Check if we are within bounds
     if (!(real_index < PADDEDSIZE))
@@ -157,7 +157,7 @@ __global__ void find_nonlinear_bits(FLUCS_FLOAT* real_derivatives_and_bits,
     }
 
     // index inside the zonal phi array
-    const int ix = real_index / PADDED_NY;
+    const size_t ix = real_index / PADDED_NY;
 
     const FLUCS_FLOAT dxphi = real_derivatives_and_bits[real_index];
     const FLUCS_FLOAT dyphi = real_derivatives_and_bits[real_index + PADDEDSIZE];
@@ -181,31 +181,31 @@ __global__ void find_nonlinear_bits(FLUCS_FLOAT* real_derivatives_and_bits,
     real_derivatives_and_bits[real_index + 4*PADDEDSIZE] = dyphi * p;
 }
 
-__device__ void add_nonlinear_terms(const int index,
+__device__ void add_nonlinear_terms(const size_t index,
                                     const FLUCS_FLOAT dt,
-                                    const int current_step,
+                                    const long long current_step,
                                     const FLUCS_FLOAT AB0,
                                     const FLUCS_FLOAT AB1,
                                     const FLUCS_FLOAT AB2,
                                     const FLUCS_COMPLEX* dft_bits,
                                     FLUCS_COMPLEX* rhs_fields){
-    // const int ikx = index / HALF_NY;
-    // const int iky = index % HALF_NY;
+    // const size_t ikx = index / HALF_NY;
+    // const size_t iky = index % HALF_NY;
 
     indices3d_t indices = get_indices3d<1, NX, HALF_NY>(index);
-    const int ikx = indices.ikx;
-    const int iky = indices.iky;
+    const size_t ikx = indices.ikx;
+    const size_t iky = indices.iky;
 
     // const FLUCS_FLOAT kx = (ikx < HALF_NX) ? TWOPI_OVER_LX * ikx : TWOPI_OVER_LX * (ikx - NX);
     // const FLUCS_FLOAT ky = TWOPI_OVER_LY * iky;
     const FLUCS_FLOAT kx = kx_from_ikx(ikx);
     const FLUCS_FLOAT ky = ky_from_iky(iky);
 
-    // const int ikx_padded = (ikx < HALF_NX) ? ikx : PADDED_NX - NX + ikx;
-    const int padded_ikx = padded_ikx_from_ikx(ikx);
+    // const size_t ikx_padded = (ikx < HALF_NX) ? ikx : PADDED_NX - NX + ikx;
+    const size_t padded_ikx = padded_ikx_from_ikx(ikx);
 
-    // const int padded_index = HALF_PADDED_NY * padded_ikx + iky;
-    const int padded_index = index_from_3d<1, PADDED_NX, HALF_PADDED_NY>(0, padded_ikx, iky);
+    // const size_t padded_index = HALF_PADDED_NY * padded_ikx + iky;
+    const size_t padded_index = index_from_3d<1, PADDED_NX, HALF_PADDED_NY>(0, padded_ikx, iky);
 
 
     const FLUCS_FLOAT kx2mky2 = kx*kx - ky*ky;
@@ -223,9 +223,9 @@ __device__ void add_nonlinear_terms(const int index,
                              +FLUCS_COMPLEX( kx * dft_bits[padded_index + 4*HALFPADDEDSIZE].imag(),
                                             -kx * dft_bits[padded_index + 4*HALFPADDEDSIZE].real()));
 
-    const int multistep_index_0 = ((current_step      % 3 + 3) % 3) * 2 * HALFUNPADDEDSIZE + index;
-    const int multistep_index_1 = ((current_step + 2) % 3)          * 2 * HALFUNPADDEDSIZE + index;
-    const int multistep_index_2 = ((current_step + 1) % 3)          * 2 * HALFUNPADDEDSIZE + index;
+    const size_t multistep_index_0 = ((current_step      % 3 + 3) % 3) * 2 * HALFUNPADDEDSIZE + index;
+    const size_t multistep_index_1 = ((current_step + 2) % 3)          * 2 * HALFUNPADDEDSIZE + index;
+    const size_t multistep_index_2 = ((current_step + 1) % 3)          * 2 * HALFUNPADDEDSIZE + index;
 
     // phi
     rhs_fields[0] -= dt * (AB0*phiNL
