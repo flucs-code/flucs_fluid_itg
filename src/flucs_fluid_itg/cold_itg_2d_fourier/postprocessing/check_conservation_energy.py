@@ -7,7 +7,7 @@ from flucs.postprocessing import FlucsPostProcessing
 def free_energy_check(post):
 
     # Get valid files for the specified variable
-    nc_paths = post.get_valid_files("free_energy/dWdt")
+    nc_paths = post.get_valid_netcdf_paths("free_energy/dWdt")
 
     # Iterate over output files
     for index, nc_path in enumerate(nc_paths):
@@ -23,12 +23,12 @@ def free_energy_check(post):
         # Read data from netCDF file
         variables = post.get_netcdf_variables(nc_path)
 
-        time, boundaries = post.load_netcdf_variable(nc_path, "time")
-        dt, _ = post.load_netcdf_variable(nc_path, "dt")
-        free_energy, _ = post.load_netcdf_variable(nc_path, "free_energy/W")
-        dWdt, _ = post.load_netcdf_variable(nc_path, "free_energy/dWdt")
-        injection, _ = post.load_netcdf_variable(nc_path, "free_energy/dWdt_inj")
-        dissipation, _ = post.load_netcdf_variable(nc_path, "free_energy/dWdt_coll")
+        time, boundaries, _ = post.load_netcdf_variable(nc_path, "time")
+        dt = post.load_netcdf_variable(nc_path, "dt")[0]
+        free_energy = post.load_netcdf_variable(nc_path, "free_energy/W")[0]
+        dWdt= post.load_netcdf_variable(nc_path, "free_energy/dWdt")[0]
+        injection = post.load_netcdf_variable(nc_path, "free_energy/dWdt_inj")[0]
+        dissipation = post.load_netcdf_variable(nc_path, "free_energy/dWdt_coll")[0]
 
         # Add hyperdissipation
         for variable in variables:
@@ -63,10 +63,9 @@ def free_energy_check(post):
         ax_error.legend()
 
         # Save figures if required
-        post.save(fig, name=figure_name, suffix="png", save_kwargs={"dpi": 300, "close": True})
+        post.save(fig, name=figure_name, suffix="png", save_kwargs={"dpi": 300})
 
-        plt.show()
-
+    plt.show()
 
     return
 
@@ -84,7 +83,7 @@ if __name__ == "__main__":
     post = FlucsPostProcessing(
         io_paths=args.io_path,
         save_directory=args.save_directory,
-        output_file="output.0d.nc",
+        output_files=["output.0d.nc"],
         constraint="both"
     )
 

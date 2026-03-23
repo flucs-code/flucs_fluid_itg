@@ -3,17 +3,16 @@ ITG system. The nonlinear term is handled explicitly using the Adams-Bashforth
 3-step method.
 
 """
+from typing import ClassVar
 
 import cupy as cp
 import numpy as np
 from cupy.cuda import cufft
-
-from .cold_itg_2d_fourier_diagnostics import HeatfluxDiag
-from .cold_itg_2d_fourier_diagnostics import FreeEnergyDiag
-
-from flucs.utilities.cupy import cupy_set_device_pointer
+from flucs.diagnostic import FlucsDiagnostic
 from flucs.solvers.fourier.fourier_system import FourierSystem
-from flucs.solvers.fourier.fourier_system_diagnostics import LinearSpectrumDiag
+from flucs.utilities.cupy import cupy_set_device_pointer
+
+from .cold_itg_2d_fourier_diagnostics import FreeEnergyDiag, HeatfluxDiag
 
 
 class ColdITG2DFourier(FourierSystem):
@@ -46,24 +45,20 @@ class ColdITG2DFourier(FourierSystem):
     zonal_average_shared_mem: int
     nonlinear_bits_shared_mem: int
 
-    # CUDA FFTs
-    fft_c2r_plan_type: int
-    fft_r2c_plan_type: int
-
     find_derivatives_kernel: cp.RawKernel
     find_nonlinear_bits_kernel: cp.RawKernel
     zonal_average_kernel: cp.RawKernel
 
     # Supported diagnostics
-    diags_dict = {"heatflux": HeatfluxDiag,
-                  "free_energy": FreeEnergyDiag}
+    diags: ClassVar[set[type[FlucsDiagnostic]]] = {
+        HeatfluxDiag, FreeEnergyDiag
+    }
 
-    def setup(self):
+    def _setup_system(self):
         """Prepares the system for the solver."""
 
         self.allocate_memory()
-        # self.setup_kernels()
-        super().setup()
+        super()._setup_system()
 
     def ready(self):
         # Anything system-specific goes here
@@ -110,7 +105,7 @@ class ColdITG2DFourier(FourierSystem):
 
         # when running linearly, need something to pass to the kernels
         # this is unused
-        self.dft_bits = cp.zeros(1, dtype=self.complex)
+        self.dft_derivatives_and_bits = cp.zeros(1, dtype=self.complex)
 
         if not self.input["setup.linear"]:
             # For the nonlinear terms, we need to keep terms at the current
@@ -129,13 +124,14 @@ class ColdITG2DFourier(FourierSystem):
             # 2 (dx^2 - dy^2) phi,
             # 3 dxdyphi
             # 4 p
-            self.dft_derivatives = cp.zeros([5, self.padded_nx,
-                                             self.half_padded_ny],
-                                            dtype=self.complex)
-            self.real_derivatives = cp.zeros([5, self.padded_nx,
-                                              self.padded_ny],
-                                             dtype=self.float)
+            self.dft_derivatives_and_bits = cp.zeros([5, self.padded_nx,
+                                                      self.half_padded_ny],
+                                                     dtype=self.complex)
+            self.real_derivatives_and_bits = cp.zeros([5, self.padded_nx,
+                                                       self.padded_ny],
+                                                      dtype=self.float)
 
+            # The above memory is reused for the NL bits.
             # These 'NL bits' are the terms which are calculated in real space.
             # They are transformed back to Fourier space, where any additional
             # derivatives are taken by multiplying the NL bits by the
@@ -147,10 +143,13 @@ class ColdITG2DFourier(FourierSystem):
             # 4 dyphi * p
             # E.g., we calculate {phi, T} by calculating
             # {phi, p} = dy (dxphi * u) - dx (dyphi * u)
-            self.dft_bits = cp.zeros([5, self.padded_nx, self.half_padded_ny],
-                                     dtype=self.complex)
-            self.real_bits = cp.zeros([5, self.padded_nx, self.padded_ny],
-                                      dtype=self.float)
+
+            # Reuse memory from dft_derivatives
+            # Still need dft_bits as FourierSystem expects it
+            self.dft_bits = self.dft_derivatives_and_bits
+
+            # self.real_bits = cp.zeros([5, self.padded_nx, self.padded_ny],
+            #                           dtype=self.float)
 
             self.cfl_rate = cp.zeros([1], dtype=self.float)
 
@@ -158,17 +157,10 @@ class ColdITG2DFourier(FourierSystem):
             # We need this for computing the zonal flow.
             self.real_dxphi = cp.ndarray((self.padded_nx, self.padded_ny),
                                          dtype=self.float,
-                                         memptr=self.real_derivatives.data)
+                                         memptr=self.real_derivatives_and_bits.data)
 
             self.real_dxphi_zonal = cp.zeros((self.padded_nx,),
                                              dtype=self.float)
-
-            if self.input["setup.precision"] == "single":
-                self.fft_c2r_plan_type = cufft.CUFFT_C2R
-                self.fft_r2c_plan_type = cufft.CUFFT_R2C
-            else:
-                self.fft_c2r_plan_type = cufft.CUFFT_Z2D
-                self.fft_r2c_plan_type = cufft.CUFFT_D2Z
 
             self.plan_c2r = cufft.PlanNd(
                 shape=tuple([self.padded_nx, self.padded_ny]),
@@ -213,21 +205,21 @@ class ColdITG2DFourier(FourierSystem):
 
     def compile_cupy_module(self) -> None:
         # System-specific constants for the kernels
-        self.module_options.define_constant("CHI",
+        self.module_options.define_float("CHI",
                                             self.input["parameters.chi"])
-        self.module_options.define_constant("A_TIMES_CHI",
+        self.module_options.define_float("A_TIMES_CHI",
                                             self.input["parameters.a"]
                                             * self.input["parameters.chi"])
 
-        self.module_options.define_constant("B_TIMES_CHI",
+        self.module_options.define_float("B_TIMES_CHI",
                                             self.input["parameters.b"]
                                             * self.input["parameters.chi"])
 
-        self.module_options.define_constant("KAPPA_T",
+        self.module_options.define_float("KAPPA_T",
                                             self.input["parameters.kappaT"])
-        self.module_options.define_constant("KAPPA_N",
+        self.module_options.define_float("KAPPA_N",
                                             self.input["parameters.kappan"])
-        self.module_options.define_constant("KAPPA_B",
+        self.module_options.define_float("KAPPA_B",
                                             self.input["parameters.kappaB"])
 
         # Call this to compile the module
@@ -257,12 +249,12 @@ class ColdITG2DFourier(FourierSystem):
         self.find_derivatives_kernel((self.half_padded_cuda_grid_size,),
                                      (self.cuda_block_size,),
                                      (self.fields[self.current_step % 2 - 1],
-                                      self.dft_derivatives,
+                                      self.dft_derivatives_and_bits,
                                       self.real_dxphi_zonal,
                                       self.cfl_rate))
 
-        self.plan_c2r.fft(self.dft_derivatives,
-                          self.real_derivatives,
+        self.plan_c2r.fft(self.dft_derivatives_and_bits,
+                          self.real_derivatives_and_bits,
                           cufft.CUFFT_INVERSE)
 
         # self.real_derivatives = cp.fft.irfftn(self.dft_derivatives, s=(self.padded_nx, self.padded_ny), norm="forward")
@@ -276,12 +268,13 @@ class ColdITG2DFourier(FourierSystem):
         self.find_nonlinear_bits_kernel(
             (self.full_padded_cuda_grid_size,),
             (self.cuda_block_size,),
-            (self.real_derivatives, self.real_dxphi_zonal,
-             self.real_bits, self.cfl_rate),
+            (self.real_derivatives_and_bits,
+             self.real_dxphi_zonal,
+             self.cfl_rate),
             shared_mem=self.nonlinear_bits_shared_mem
         )
 
-        self.plan_r2c.fft(self.real_bits, self.dft_bits, cufft.CUFFT_FORWARD)
+        self.plan_r2c.fft(self.real_derivatives_and_bits, self.dft_derivatives_and_bits, cufft.CUFFT_FORWARD)
         # self.dft_bits = cp.fft.rfftn(self.real_bits,
         #                              s=(self.padded_nx, self.padded_ny),
         #                              norm="forward")
