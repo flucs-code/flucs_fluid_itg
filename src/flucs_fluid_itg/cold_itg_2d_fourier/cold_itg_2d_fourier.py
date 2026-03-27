@@ -106,6 +106,8 @@ class ColdITG2DFourier(FourierSystem):
         # when running linearly, need something to pass to the kernels
         # this is unused
         self.dft_derivatives_and_bits = cp.zeros(1, dtype=self.complex)
+        # Still need dft_bits as FourierSystem expects it
+        self.dft_bits = self.dft_derivatives_and_bits
 
         if not self.input["setup.linear"]:
             # For the nonlinear terms, we need to keep terms at the current
