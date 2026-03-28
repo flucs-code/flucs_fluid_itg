@@ -242,6 +242,18 @@ __device__ void add_nonlinear_terms(const size_t index,
     multistep_nonlinear_terms[multistep_index_0 + HALFUNPADDEDSIZE] = TNL;
 }
 
+struct FreeEnergy_Functor {
+    const FLUCS_COMPLEX* __restrict__ fields;
+    const FLUCS_FLOAT multiplier;
+    __device__ __forceinline__ FLUCS_FLOAT operator()(size_t index) const {
+        const FLUCS_COMPLEX T = fields[index + HALFUNPADDEDSIZE];
+        const FLUCS_FLOAT T2 = T.real() * T.real() + T.imag() * T.imag();
+
+        return multiplier * ((FLUCS_FLOAT)0.5) * T2;
+    }
+};
+
+
 __global__
 void heatflux_kx(
     const FLUCS_COMPLEX* phi,
@@ -259,28 +271,28 @@ void heatflux_kx(
 
 __global__
 void dW_kx(
-    const FLUCS_COMPLEX* T_now,
-    const FLUCS_COMPLEX* T_prev,
+    const FLUCS_COMPLEX* __restrict__ fields,
+    const FLUCS_COMPLEX* __restrict__ fields_previous,
     FLUCS_FLOAT* output){
 
     add_and_sum_last_axis<HALF_NY, true>(
-            (FLUCS_FLOAT)0.5,
+            FLOAT_ONE,
             output,
-            Abs2_Functor{T_now, FLOAT_ONE},
-            Abs2_Functor{T_prev, -FLOAT_ONE}
+            FreeEnergy_Functor{fields, FLOAT_ONE},
+            FreeEnergy_Functor{fields_previous, -FLOAT_ONE}
         );
 
 }
 
 __global__
 void free_energy_kx(
-    const FLUCS_COMPLEX* T,
+    const FLUCS_COMPLEX* fields,
     FLUCS_FLOAT* output){
 
     add_and_sum_last_axis<HALF_NY, true>(
-            (FLUCS_FLOAT)0.5,
+            FLOAT_ONE,
             output,
-            Abs2_Functor{T, FLOAT_ONE}
+            FreeEnergy_Functor{fields, FLOAT_ONE}
         );
 
 }
@@ -298,5 +310,41 @@ void free_energy_collisional_loss_kx(
         );
 
 }
+
+__global__
+void W_hyperdissipation_kx_kx(const FLUCS_COMPLEX* fields, FLUCS_FLOAT* output) {
+    add_and_sum_last_axis<HALF_NY, true>(
+        FLOAT_ONE,
+        output,
+        HyperdissipationKx_Functor<FreeEnergy_Functor>{FreeEnergy_Functor{fields, (FLUCS_FLOAT)2.0}}
+    );
+}
+
+__global__
+void W_hyperdissipation_ky_kx(const FLUCS_COMPLEX* fields, FLUCS_FLOAT* output) {
+    add_and_sum_last_axis<HALF_NY, true>(
+        FLOAT_ONE,
+        output,
+        HyperdissipationKy_Functor<FreeEnergy_Functor>{FreeEnergy_Functor{fields, (FLUCS_FLOAT)2.0}}
+    );
+}
+__global__
+void W_hyperdissipation_kz_kx(const FLUCS_COMPLEX* fields, FLUCS_FLOAT* output) {
+    add_and_sum_last_axis<HALF_NY, true>(
+        FLOAT_ONE,
+        output,
+        HyperdissipationKz_Functor<FreeEnergy_Functor>{FreeEnergy_Functor{fields, (FLUCS_FLOAT)2.0}}
+    );
+}
+__global__
+void W_hyperdissipation_perp_kx(const FLUCS_COMPLEX* fields, FLUCS_FLOAT* output) {
+    add_and_sum_last_axis<HALF_NY, true>(
+        FLOAT_ONE,
+        output,
+        HyperdissipationPerp_Functor<FreeEnergy_Functor>{FreeEnergy_Functor{fields, (FLUCS_FLOAT)2.0}}
+    );
+}
+
+
 
 } // extern "C"
