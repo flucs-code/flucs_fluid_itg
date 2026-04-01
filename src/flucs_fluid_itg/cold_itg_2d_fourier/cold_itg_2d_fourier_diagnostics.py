@@ -143,20 +143,23 @@ class FreeEnergyDiag(FlucsDiagnostic):
         self.real_last_axis_sum_nx_kernel = self.system.cupy_module.get_function("real_last_axis_sum_nx")
 
         self.hyperdissipation_magnitude_kernels = {
-            "perp": self.system.cupy_module.get_function("hyperdissipation_perp_magnitude"),
-            "kx": self.system.cupy_module.get_function("hyperdissipation_kx_magnitude"),
-            "ky": self.system.cupy_module.get_function("hyperdissipation_ky_magnitude"),
-            "kz": self.system.cupy_module.get_function("hyperdissipation_kz_magnitude"),
+            "perp": self.system.cupy_module.get_function("W_hyperdissipation_perp_kx"),
+            "kx": self.system.cupy_module.get_function("W_hyperdissipation_kx_kx"),
+            "ky": self.system.cupy_module.get_function("W_hyperdissipation_ky_kx"),
+            "kz": self.system.cupy_module.get_function("W_hyperdissipation_kz_kx"),
         }
 
     def execute(self):
-        # W
+        fields = self.system.fields[self.system.current_step % 2]
+        fields_previous = self.system.fields[self.system.current_step % 2 - 1]
+        phi = self.system.phi[self.system.current_step % 2]
         T = self.system.T[self.system.current_step % 2]
 
+        # W
         self.free_energy_kx_kernel(
                 (self.system.nx,),
                 (BLOCK_SIZE,),
-                (T, self.real_temp),
+                (fields, self.real_temp),
                 shared_mem=THREADS_PER_WARP * self.system.float().nbytes)
 
         self.real_last_axis_sum_nx_kernel(
@@ -168,12 +171,10 @@ class FreeEnergyDiag(FlucsDiagnostic):
         self.save_data("W", self.real_result.get().item())
 
         # dW/dt
-        T_prev = self.system.T[(self.system.current_step - 1) % 2]
-
         self.dW_kx_kernel(
                 (self.system.nx,),
                 (BLOCK_SIZE,),
-                (T, T_prev, self.real_temp),
+                (fields, fields_previous, self.real_temp),
                 shared_mem=THREADS_PER_WARP * self.system.float().nbytes)
 
         self.real_last_axis_sum_nx_kernel(
@@ -202,7 +203,6 @@ class FreeEnergyDiag(FlucsDiagnostic):
         self.save_data("dWdt_coll", dWdt_coll)
 
         # dW/dt_inj
-        phi = self.system.phi[self.system.current_step % 2]
 
         self.heatflux_kx_kernel(
                 (self.system.nx,),
@@ -226,7 +226,7 @@ class FreeEnergyDiag(FlucsDiagnostic):
             kernel(
                 (self.system.nx,),
                 (BLOCK_SIZE,),
-                (T, self.real_temp),
+                (fields, self.real_temp),
                 shared_mem=THREADS_PER_WARP * self.system.float().nbytes)
 
             self.real_last_axis_sum_nx_kernel(
