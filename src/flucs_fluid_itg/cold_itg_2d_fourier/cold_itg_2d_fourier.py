@@ -291,7 +291,11 @@ class ColdITG2DFourier(FourierSystem):
 
         # Initialise linear matrix
         linear_matrix = np.zeros(
-            (2, 2, *self.half_unpadded_tuple),
+            (
+            self.number_of_fields, 
+            self.number_of_fields, 
+            *self.half_unpadded_tuple
+            ),
             dtype=self.complex,
         )
 
