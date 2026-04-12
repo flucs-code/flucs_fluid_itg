@@ -286,42 +286,54 @@ class ColdITG2DFourier(FourierSystem):
     def finish_time_step(self) -> None:
         super().finish_time_step()
 
-    def compute_complex_omega(self):
-        linear_matrix = np.zeros(self.half_unpadded_tuple + (2, 2),
-                                 dtype=self.complex)
 
-        kxs, kys, kzs = self.get_broadcast_wavenumbers()
-        kperp2 = kxs**2 + kys**2
+    def compute_linear_matrix_reference(self) -> np.ndarray:
 
+        # Initialise linear matrix
+        linear_matrix = np.zeros(
+            (
+            self.number_of_fields, 
+            self.number_of_fields, 
+            *self.half_unpadded_tuple
+            ),
+            dtype=self.complex,
+        )
+
+        # Get wavenumbers
+        kx, ky, kz = self.get_broadcast_wavenumbers()
+        kperp2 = kx**2 + ky**2
+        kperp2[0, 0, 0] = 1.0  # safely handle zonal mode
+
+        # Get parameters
         kappaT = self.input["parameters.kappaT"]
         kappaB = self.input["parameters.kappaB"]
         kappan = self.input["parameters.kappan"]
+
         chi = self.input["parameters.chi"]
         a = self.input["parameters.a"]
         b = self.input["parameters.b"]
 
+        # Define arrays for zonal repsonse
         eta = 1 + kperp2
-        # zonal response
         eta[0, :, 0] = kperp2[0, :, 0]
+        eta[0, 0, 0] = 1.0
 
         # phi-phi
-        linear_matrix[:, :, :, 0, 0] = (
-                    a*chi*(kperp2**2)
-                    - 1j*(kappaB - kappan)*kys
-                    - 1j*kappaT*kperp2*kys) / eta
+        linear_matrix[0, 0, :, :, :] = (
+                    + a * chi * (kperp2**2)
+                    - 1j * (kappaB - kappan) * ky
+                    - 1j * kappaT * kperp2 * ky
+                    ) / eta
 
         # phi-T
-        linear_matrix[:, :, :, 0, 1] = (
-                    - b*chi*(kperp2**2)
-                    - 1j*kappaB*kys) / eta
+        linear_matrix[0, 1, :, :, :] = (
+                    - b * chi * (kperp2**2)
+                    - 1j * kappaB * ky) / eta
 
         # T-phi
-        linear_matrix[:, :, :, 1, 0] = 1j*kappaT*kys
+        linear_matrix[1, 0, :, :, :] = 1j * kappaT * ky
 
         # T-T
-        linear_matrix[:, :, :, 1, 1] = chi*kperp2
+        linear_matrix[1, 1, :, :, :] = chi*kperp2
 
-        # Fix (0,0,0) mode
-        linear_matrix[0, 0, 0, :, :] = np.identity(2)
-
-        return -1j*np.linalg.eigvals(linear_matrix)
+        return linear_matrix
