@@ -302,7 +302,6 @@ class ColdITG2DFourier(FourierSystem):
         # Get wavenumbers
         kx, ky, kz = self.get_broadcast_wavenumbers()
         kperp2 = kx**2 + ky**2
-        kperp2[0, 0, 0] = 1.0  # safely handle zonal mode
 
         # Get parameters
         kappaT = self.input["parameters.kappaT"]
