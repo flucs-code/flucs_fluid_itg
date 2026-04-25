@@ -67,6 +67,11 @@ class ColdITG2DFourier(FourierSystem):
             cupy_set_device_pointer(self.cupy_module,
                                     "multistep_nonlinear_terms",
                                     self.multistep_nonlinear_terms)
+        super().ready()
+
+    def setup_cuda_grids(self) -> None:
+        super().setup_cuda_grids()
+
         # Setup kernel parameters (grid, block, shared memory)
         self.zonal_average_cuda_block = (256,)
         self.zonal_average_cuda_grid = (self.padded_nx,)
@@ -75,8 +80,6 @@ class ColdITG2DFourier(FourierSystem):
         self.nonlinear_bits_shared_mem = (
             self.cuda_block_size * self.float().nbytes
         )
-
-        super().ready()
 
     def allocate_memory(self):
         # GPU arrays
