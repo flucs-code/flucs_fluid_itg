@@ -127,16 +127,21 @@ __global__ void find_nonlinear_bits(FLUCS_FLOAT* real_derivatives_and_bits,
                                     const FLUCS_FLOAT* real_dxphi_zonal,
                                     FLUCS_FLOAT* cfl_rate){
     // Shared memory for CFL calculations
-    extern __shared__ float cfl_shared[];
+    extern __shared__ FLUCS_FLOAT cfl_shared[];
 
     const size_t real_index = blockDim.x * blockIdx.x + threadIdx.x;
+    const bool in_bounds = real_index < PADDEDSIZE;
 
-    // Check if we are within bounds
-    if (!(real_index < PADDEDSIZE))
-        return;
+    // Inactive threads do not contribute to the cfl reduction 
+    const FLUCS_FLOAT dxphi = in_bounds
+        ? real_derivatives_and_bits[real_index]
+        : (FLUCS_FLOAT)0;
+    const FLUCS_FLOAT dyphi = in_bounds
+        ? real_derivatives_and_bits[real_index + PADDEDSIZE]
+        : (FLUCS_FLOAT)0;
 
-    const FLUCS_FLOAT cfl = flucs_fabs(real_derivatives_and_bits[real_index]) * (NY / LY) + flucs_fabs(real_derivatives_and_bits[real_index + PADDEDSIZE]) * (NX / LX);
-    // cfl_array[real_index] = cfl;
+    const FLUCS_FLOAT cfl = flucs_fabs(dxphi) * (NY / LY)
+        + flucs_fabs(dyphi) * (NX / LX);
 
     // Find max CFL using shared memory
     // TODO: Could we speed this up by reducing over warps?
@@ -146,7 +151,7 @@ __global__ void find_nonlinear_bits(FLUCS_FLOAT* real_derivatives_and_bits,
     // Parallel reduction in shared memory
     for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
         if (threadIdx.x < stride) {
-            cfl_shared[threadIdx.x] = fmaxf(cfl_shared[threadIdx.x], cfl_shared[threadIdx.x + stride]);
+            cfl_shared[threadIdx.x] = flucs_fmax(cfl_shared[threadIdx.x], cfl_shared[threadIdx.x + stride]);
         }
         __syncthreads();
     }
@@ -156,11 +161,13 @@ __global__ void find_nonlinear_bits(FLUCS_FLOAT* real_derivatives_and_bits,
         atomicMaxFloat(cfl_rate, cfl_shared[0]); // custom atomic for float
     }
 
+    // Out-of-bounds threads should not contribute to nonlinear bits
+    if (!in_bounds)
+        return;
+
     // index inside the zonal phi array
     const size_t ix = real_index / PADDED_NY;
 
-    const FLUCS_FLOAT dxphi = real_derivatives_and_bits[real_index];
-    const FLUCS_FLOAT dyphi = real_derivatives_and_bits[real_index + PADDEDSIZE];
     const FLUCS_FLOAT dx2mdy2phi = real_derivatives_and_bits[real_index + 2*PADDEDSIZE];
     const FLUCS_FLOAT dxdyphi = real_derivatives_and_bits[real_index + 3*PADDEDSIZE];
     const FLUCS_FLOAT p = real_derivatives_and_bits[real_index + 4*PADDEDSIZE];
