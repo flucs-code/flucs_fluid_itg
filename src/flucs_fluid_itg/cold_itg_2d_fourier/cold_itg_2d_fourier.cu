@@ -24,8 +24,8 @@ __device__ void get_linear_matrix(const size_t index, const FLUCS_FLOAT dt, FLUC
     const FLUCS_FLOAT kx = kx_from_ikx(ikx);
     const FLUCS_FLOAT ky = ky_from_iky(iky);
 
-    const FLUCS_FLOAT kperp2 = kx*kx + ky*ky + (FLUCS_FLOAT)(index == 0);
-    const FLUCS_FLOAT eta_inv = (FLUCS_FLOAT)(1.0) / ((FLUCS_FLOAT)(iky > 0) + kperp2);
+    const FLUCS_FLOAT kperp2 = kx*kx + ky*ky;
+    const FLUCS_FLOAT eta_inv = (FLUCS_FLOAT)(1.0) / ((FLUCS_FLOAT)(iky > 0) + kperp2 + (FLUCS_FLOAT)(index == 0));
 
 
     // Generate the linear matrix
