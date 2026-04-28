@@ -319,36 +319,60 @@ void free_energy_collisional_loss_kx(
 }
 
 __global__
-void W_hyperdissipation_kx_kx(const FLUCS_COMPLEX* fields, FLUCS_FLOAT* output) {
+void W_hyperdissipation_kx_kx(
+    const FLUCS_COMPLEX* fields,
+    const FLUCS_FLOAT dt,
+    FLUCS_FLOAT* output
+) {
     add_and_sum_last_axis<HALF_NY, true>(
         FLOAT_ONE,
         output,
-        HyperdissipationKx_Functor<FreeEnergy_Functor>{FreeEnergy_Functor{fields, (FLUCS_FLOAT)2.0}}
+        HyperdissipationKx_Functor<FreeEnergy_Functor>{
+            FreeEnergy_Functor{fields, (FLUCS_FLOAT)2.0}, dt
+        }
     );
 }
 
 __global__
-void W_hyperdissipation_ky_kx(const FLUCS_COMPLEX* fields, FLUCS_FLOAT* output) {
+void W_hyperdissipation_ky_kx(
+    const FLUCS_COMPLEX* fields,
+    const FLUCS_FLOAT dt,
+    FLUCS_FLOAT* output
+) {
     add_and_sum_last_axis<HALF_NY, true>(
         FLOAT_ONE,
         output,
-        HyperdissipationKy_Functor<FreeEnergy_Functor>{FreeEnergy_Functor{fields, (FLUCS_FLOAT)2.0}}
+        HyperdissipationKy_Functor<FreeEnergy_Functor>{
+            FreeEnergy_Functor{fields, (FLUCS_FLOAT)2.0}, dt
+        }
     );
 }
 __global__
-void W_hyperdissipation_kz_kx(const FLUCS_COMPLEX* fields, FLUCS_FLOAT* output) {
+void W_hyperdissipation_kz_kx(
+    const FLUCS_COMPLEX* fields,
+    const FLUCS_FLOAT dt,
+    FLUCS_FLOAT* output
+) {
     add_and_sum_last_axis<HALF_NY, true>(
         FLOAT_ONE,
         output,
-        HyperdissipationKz_Functor<FreeEnergy_Functor>{FreeEnergy_Functor{fields, (FLUCS_FLOAT)2.0}}
+        HyperdissipationKz_Functor<FreeEnergy_Functor>{
+            FreeEnergy_Functor{fields, (FLUCS_FLOAT)2.0}, dt
+        }
     );
 }
 __global__
-void W_hyperdissipation_perp_kx(const FLUCS_COMPLEX* fields, FLUCS_FLOAT* output) {
+void W_hyperdissipation_perp_kx(
+    const FLUCS_COMPLEX* fields,
+    const FLUCS_FLOAT dt,
+    FLUCS_FLOAT* output
+) {
     add_and_sum_last_axis<HALF_NY, true>(
         FLOAT_ONE,
         output,
-        HyperdissipationPerp_Functor<FreeEnergy_Functor>{FreeEnergy_Functor{fields, (FLUCS_FLOAT)2.0}}
+        HyperdissipationPerp_Functor<FreeEnergy_Functor>{
+            FreeEnergy_Functor{fields, (FLUCS_FLOAT)2.0}, dt
+        }
     );
 }
 
