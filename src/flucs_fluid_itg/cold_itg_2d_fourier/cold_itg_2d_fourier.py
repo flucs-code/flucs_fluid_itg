@@ -1,7 +1,7 @@
-"""Pseudospectral Fourier implementation of the Ivanov et al. (2020) 2D fluid
+"""
+Pseudospectral Fourier implementation of the Ivanov et al. (2020) 2D fluid
 ITG system. The nonlinear term is handled explicitly using the Adams-Bashforth
 3-step method.
-
 """
 from typing import ClassVar
 
@@ -26,13 +26,10 @@ class ColdITG2DFourier(FourierSystem):
     phi: list
     T: list
 
-    # Nonlinear terms
-    nonlinear_terms: list
-
     real_dxphi: cp.ndarray
     real_dxphi_zonal: cp.ndarray
 
-    # CUDA grids
+    # CUDA grids and kernels
     zonal_average_cuda_block: tuple
     zonal_average_cuda_grid: tuple
     zonal_average_shared_mem: int
@@ -46,10 +43,6 @@ class ColdITG2DFourier(FourierSystem):
     diags: ClassVar[set[type[FlucsDiagnostic]]] = {
         HeatfluxDiag, FreeEnergyDiag
     }
-
-    def _setup_system(self):
-        """Prepares the system for the solver."""
-        super()._setup_system()
 
     def ready(self):
         # Anything system-specific goes here
@@ -248,7 +241,7 @@ class ColdITG2DFourier(FourierSystem):
         a = self.input["parameters.a"]
         b = self.input["parameters.b"]
 
-        # Define arrays for zonal repsonse
+        # Define arrays for zonal response
         eta = 1 + kperp2
         eta[0, :, 0] = kperp2[0, :, 0]
         eta[0, 0, 0] = 1.0
