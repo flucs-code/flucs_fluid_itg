@@ -8,6 +8,7 @@ from typing import ClassVar
 import cupy as cp
 import numpy as np
 from cupy.cuda import cufft
+from flucs.input import InvalidFlucsInputFileError
 from flucs.diagnostic import FlucsDiagnostic
 from flucs.solvers.fourier.fourier_system import FourierSystem
 from flucs.utilities.cupy import cupy_set_device_pointer
@@ -207,6 +208,11 @@ class ColdITG2DFourier(FourierSystem):
         if self.nz != 1 or self.padded_nz != 1:
             raise ValueError("Both nz and padded_nz should be "
                              "set to 1 for the 2D system!")
+
+        if self.input["hyperdissipation.kz"] > 0.0:
+            raise InvalidFlucsInputFileError(
+                "Hyperdissipation in kz is not supported for 2D systems."
+            )
 
     def compile_cupy_module(self) -> None:
         # System-specific constants for the kernels
