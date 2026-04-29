@@ -188,16 +188,12 @@ __global__ void find_nonlinear_bits(FLUCS_FLOAT* real_derivatives_and_bits,
     real_derivatives_and_bits[real_index + 4*PADDEDSIZE] = dyphi * p;
 }
 
-__device__ void add_nonlinear_terms(const size_t index,
-                                    const FLUCS_FLOAT dt,
-                                    const long long current_step,
-                                    const FLUCS_FLOAT AB0,
-                                    const FLUCS_FLOAT AB1,
-                                    const FLUCS_FLOAT AB2,
+__device__ __forceinline__
+int nonlinear_term_field_index(const int term_index) { return term_index; }
+
+__device__ void get_nonlinear_terms(const size_t index,
                                     const FLUCS_COMPLEX* dft_bits,
-                                    FLUCS_COMPLEX* rhs_fields){
-    // const size_t ikx = index / HALF_NY;
-    // const size_t iky = index % HALF_NY;
+                                    FLUCS_COMPLEX* nonlinear_terms) {
 
     indices3d_t indices = get_indices3d<1, NX, HALF_NY>(index);
     const size_t ikx = indices.ikx;
@@ -219,34 +215,16 @@ __device__ void add_nonlinear_terms(const size_t index,
     const FLUCS_FLOAT kperp2 = kx*kx + ky*ky + (FLUCS_FLOAT)(index == 0);
     const FLUCS_FLOAT eta_inv = (FLUCS_FLOAT)(1.0) / ((FLUCS_FLOAT)(iky > 0) + kperp2);
     
-    const FLUCS_COMPLEX phiNL = DFT_PADDEDSIZE_FACTOR * \
+    nonlinear_terms[0] = DFT_PADDEDSIZE_FACTOR * \
         eta_inv*(dft_bits[padded_index]
                  - kx*ky*dft_bits[padded_index + HALFPADDEDSIZE]
                  + kx2mky2*dft_bits[padded_index + 2*HALFPADDEDSIZE]);
 
-    const FLUCS_COMPLEX TNL = DFT_PADDEDSIZE_FACTOR * (
+    nonlinear_terms[1] = DFT_PADDEDSIZE_FACTOR * (
                               FLUCS_COMPLEX(-ky * dft_bits[padded_index + 3*HALFPADDEDSIZE].imag(),
                                              ky * dft_bits[padded_index + 3*HALFPADDEDSIZE].real())
                              +FLUCS_COMPLEX( kx * dft_bits[padded_index + 4*HALFPADDEDSIZE].imag(),
                                             -kx * dft_bits[padded_index + 4*HALFPADDEDSIZE].real()));
-
-    const size_t multistep_index_0 = ((current_step      % 3 + 3) % 3) * 2 * HALFUNPADDEDSIZE + index;
-    const size_t multistep_index_1 = ((current_step + 2) % 3)          * 2 * HALFUNPADDEDSIZE + index;
-    const size_t multistep_index_2 = ((current_step + 1) % 3)          * 2 * HALFUNPADDEDSIZE + index;
-
-    // phi
-    rhs_fields[0] -= dt * (AB0*phiNL
-                           +AB1*multistep_nonlinear_terms[multistep_index_1]
-                           +AB2*multistep_nonlinear_terms[multistep_index_2]);
-
-    multistep_nonlinear_terms[multistep_index_0] = phiNL;
-
-    // T
-    rhs_fields[1] -= dt * (AB0*TNL
-                           +AB1*multistep_nonlinear_terms[multistep_index_1 + HALFUNPADDEDSIZE]
-                           +AB2*multistep_nonlinear_terms[multistep_index_2 + HALFUNPADDEDSIZE]);
-
-    multistep_nonlinear_terms[multistep_index_0 + HALFUNPADDEDSIZE] = TNL;
 }
 
 struct FreeEnergy_Functor {
