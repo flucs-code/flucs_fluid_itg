@@ -1,7 +1,7 @@
-"""Pseudospectral Fourier implementation of the Ivanov et al. (2020) 2D fluid
+"""
+Pseudospectral Fourier implementation of the Ivanov et al. (2020) 2D fluid
 ITG system. The nonlinear term is handled explicitly using the Adams-Bashforth
 3-step method.
-
 """
 from typing import ClassVar
 
@@ -18,28 +18,18 @@ from .cold_itg_2d_fourier_diagnostics import FreeEnergyDiag, HeatfluxDiag
 class ColdITG2DFourier(FourierSystem):
     """Fourier solver for the 2D system."""
     number_of_fields = 2
+    number_of_fields_nonlinear = 2
+    number_of_dft_derivatives = 5
+    number_of_dft_bits = 5
 
     # Direct pointers to the phi and T arrays
     phi: list
     T: list
 
-    # Nonlinear terms
-    nonlinear_terms: list
-
-    # Derivatives and 'bits' used for the nonlinear terms
-    dft_derivatives: cp.ndarray
-    real_derivatives: cp.ndarray
-
-    dft_bits: cp.ndarray
-    real_bits: cp.ndarray
     real_dxphi: cp.ndarray
     real_dxphi_zonal: cp.ndarray
 
-    # DFT plans
-    plan_r2c: cufft.PlanNd
-    plan_c2r: cufft.PlanNd
-
-    # CUDA grids
+    # CUDA grids and kernels
     zonal_average_cuda_block: tuple
     zonal_average_cuda_grid: tuple
     zonal_average_shared_mem: int
@@ -53,12 +43,6 @@ class ColdITG2DFourier(FourierSystem):
     diags: ClassVar[set[type[FlucsDiagnostic]]] = {
         HeatfluxDiag, FreeEnergyDiag
     }
-
-    def _setup_system(self):
-        """Prepares the system for the solver."""
-
-        self.allocate_memory()
-        super()._setup_system()
 
     def ready(self):
         # Anything system-specific goes here
@@ -81,17 +65,17 @@ class ColdITG2DFourier(FourierSystem):
             self.cuda_block_size * self.float().nbytes
         )
 
-    def allocate_memory(self):
+    def _allocate_memory(self) -> None:
+        """Allocates runtime arrays."""
+
+        # First, call FourierSystem's method which allocates
+        # self.fields among other things.
+        super()._allocate_memory(allocate_derivatives_and_bits=True,
+                                 combine_derivatives_and_bits=True)
+
         # GPU arrays
 
-        # For the field arrays, we need to keep the fields
-        # at the current time step and the previous one.
-
-        self.fields = [cp.zeros((2, self.nz, self.nx, self.half_ny),
-                                dtype=self.complex),
-                       cp.zeros((2, self.nz, self.nx, self.half_ny),
-                                dtype=self.complex)]
-
+        # Pointers to phi and T for easier access
         self.phi = [cp.ndarray((self.nz, self.nx, self.half_ny),
                                dtype=self.complex,
                                memptr=self.fields[0][0, 0, 0, 0].data),
@@ -106,21 +90,7 @@ class ColdITG2DFourier(FourierSystem):
                              dtype=self.complex,
                              memptr=self.fields[1][1, 0, 0, 0].data),]
 
-        # when running linearly, need something to pass to the kernels
-        # this is unused
-        self.dft_derivatives_and_bits = cp.zeros(1, dtype=self.complex)
-        # Still need dft_bits as FourierSystem expects it
-        self.dft_bits = self.dft_derivatives_and_bits
-
         if not self.input["setup.linear"]:
-            # For the nonlinear terms, we need to keep terms at the current
-            # time step + terms from the past 2 time steps (since we will be
-            # using AB3)
-            # The nonlinear terms are indexed as (step, field, kz, kx, ky)
-            self.multistep_nonlinear_terms = cp.zeros((3, 2, self.nz, self.nx,
-                                                       self.half_ny),
-                                                      dtype=self.complex)
-
             # All fields and derivatives to be transformed to real space
             # are kept in one huge array (dft_derivatives).
             # The first index indexes the fields and it's meaning is
@@ -129,71 +99,25 @@ class ColdITG2DFourier(FourierSystem):
             # 2 (dx^2 - dy^2) phi,
             # 3 dxdyphi
             # 4 p
-            self.dft_derivatives_and_bits = cp.zeros([5, self.padded_nx,
-                                                      self.half_padded_ny],
-                                                     dtype=self.complex)
-            self.real_derivatives_and_bits = cp.zeros([5, self.padded_nx,
-                                                       self.padded_ny],
-                                                      dtype=self.float)
 
-            # The above memory is reused for the NL bits.
-            # These 'NL bits' are the terms which are calculated in real space.
-            # They are transformed back to Fourier space, where any additional
-            # derivatives are taken by multiplying the NL bits by the
-            # appropriate powers of k. The NL bits here are
+            # The NL bits here are
             # 0 dxphi0 * dyphi
             # 1 (dx^2 - dy^2)phi * p
             # 2 dxdyphi * p
             # 3 dxphi * p
             # 4 dyphi * p
-            # E.g., we calculate {phi, T} by calculating
-            # {phi, p} = dy (dxphi * u) - dx (dyphi * u)
 
-            # Reuse memory from dft_derivatives
-            # Still need dft_bits as FourierSystem expects it
-            self.dft_bits = self.dft_derivatives_and_bits
-
-            # self.real_bits = cp.zeros([5, self.padded_nx, self.padded_ny],
-            #                           dtype=self.float)
-
-            self.cfl_rate = cp.zeros([1], dtype=self.float)
+            # The arrays for the above are handled by FourierSystem
+            # Here follow all the ITG-specific ones
 
             # The first derivative in real_derivatives is dx phi.
             # We need this for computing the zonal flow.
             self.real_dxphi = cp.ndarray((self.padded_nx, self.padded_ny),
                                          dtype=self.float,
-                                         memptr=self.real_derivatives_and_bits.data)
+                                         memptr=self.real_derivatives.data)
 
             self.real_dxphi_zonal = cp.zeros((self.padded_nx,),
                                              dtype=self.float)
-
-            self.plan_c2r = cufft.PlanNd(
-                shape=tuple([self.padded_nx, self.padded_ny]),
-                istride=1,
-                ostride=1,
-                inembed=tuple([1, self.half_padded_ny]),
-                onembed=tuple([1, self.padded_ny]),
-                idist=self.padded_nx*self.half_padded_ny,
-                odist=self.padded_nx*self.padded_ny,
-                fft_type=self.fft_c2r_plan_type,
-                batch=5,
-                order='C',
-                last_axis=2,
-                last_size=self.padded_ny)
-
-            self.plan_r2c = cufft.PlanNd(
-                shape=tuple([self.padded_nx, self.padded_ny]),
-                istride=1,
-                ostride=1,
-                inembed=tuple([1, self.padded_ny]),
-                onembed=tuple([1, self.half_padded_ny]),
-                idist=self.padded_nx*self.padded_ny,
-                odist=self.padded_nx*self.half_padded_ny,
-                fft_type=self.fft_r2c_plan_type,
-                batch=5,
-                order='C',
-                last_axis=2,
-                last_size=self.half_padded_ny)
 
     def _interpret_input(self):
         """Checks if the input file makes sense"""
@@ -254,35 +178,32 @@ class ColdITG2DFourier(FourierSystem):
         self.find_derivatives_kernel((self.half_padded_cuda_grid_size,),
                                      (self.cuda_block_size,),
                                      (self.fields[self.current_step % 2 - 1],
-                                      self.dft_derivatives_and_bits,
+                                      self.dft_derivatives,
                                       self.real_dxphi_zonal,
                                       self.cfl_rate))
 
-        self.plan_c2r.fft(self.dft_derivatives_and_bits,
-                          self.real_derivatives_and_bits,
-                          cufft.CUFFT_INVERSE)
+        self.plan_derivatives_c2r.fft(self.dft_derivatives,
+                                      self.real_derivatives,
+                                      cufft.CUFFT_INVERSE)
 
-        # self.real_derivatives = cp.fft.irfftn(self.dft_derivatives, s=(self.padded_nx, self.padded_ny), norm="forward")
-        # cp.mean(self.real_dxphi, axis=[-1], out=self.real_dxphi_zonal)
 
         self.zonal_average_kernel(self.zonal_average_cuda_grid,
                                   self.zonal_average_cuda_block,
                                   (self.real_dxphi, self.real_dxphi_zonal),
                                   shared_mem=self.zonal_average_shared_mem)
 
+        # NB: real_derivatives and real_bits are the same array
         self.find_nonlinear_bits_kernel(
             (self.full_padded_cuda_grid_size,),
             (self.cuda_block_size,),
-            (self.real_derivatives_and_bits,
+            (self.real_derivatives,
              self.real_dxphi_zonal,
              self.cfl_rate),
             shared_mem=self.nonlinear_bits_shared_mem
         )
 
-        self.plan_r2c.fft(self.real_derivatives_and_bits, self.dft_derivatives_and_bits, cufft.CUFFT_FORWARD)
-        # self.dft_bits = cp.fft.rfftn(self.real_bits,
-        #                              s=(self.padded_nx, self.padded_ny),
-        #                              norm="forward")
+        # NB: real_derivatives and real_bits are the same array
+        self.plan_bits_r2c.fft(self.real_bits, self.dft_bits, cufft.CUFFT_FORWARD)
 
         super().calculate_nonlinear_terms()
 
@@ -315,7 +236,7 @@ class ColdITG2DFourier(FourierSystem):
         a = self.input["parameters.a"]
         b = self.input["parameters.b"]
 
-        # Define arrays for zonal repsonse
+        # Define arrays for zonal response
         eta = 1 + kperp2
         eta[0, :, 0] = kperp2[0, :, 0]
         eta[0, 0, 0] = 1.0
