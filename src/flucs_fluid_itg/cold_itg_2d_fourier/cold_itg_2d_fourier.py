@@ -186,8 +186,6 @@ class ColdITG2DFourier(FourierSystem):
                                       self.real_derivatives,
                                       cufft.CUFFT_INVERSE)
 
-        # self.real_derivatives = cp.fft.irfftn(self.dft_derivatives, s=(self.padded_nx, self.padded_ny), norm="forward")
-        # cp.mean(self.real_dxphi, axis=[-1], out=self.real_dxphi_zonal)
 
         self.zonal_average_kernel(self.zonal_average_cuda_grid,
                                   self.zonal_average_cuda_block,
@@ -206,9 +204,6 @@ class ColdITG2DFourier(FourierSystem):
 
         # NB: real_derivatives and real_bits are the same array
         self.plan_bits_r2c.fft(self.real_bits, self.dft_bits, cufft.CUFFT_FORWARD)
-        # self.dft_bits = cp.fft.rfftn(self.real_bits,
-        #                              s=(self.padded_nx, self.padded_ny),
-        #                              norm="forward")
 
         super().calculate_nonlinear_terms()
 
