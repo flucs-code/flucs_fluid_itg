@@ -7,9 +7,6 @@
 
 extern "C" {
 
-// Array for AB3 nonlinear terms
-__constant__ FLUCS_COMPLEX* multistep_nonlinear_terms = NULL;
-
 __device__ void get_linear_matrix(const size_t index, const FLUCS_FLOAT dt, FLUCS_COMPLEX matrix[2][2]){
     // First, we need to figure out the kx and ky of the mode.
     // const size_t ikx = index / HALF_NY;
@@ -189,11 +186,11 @@ __global__ void find_nonlinear_bits(FLUCS_FLOAT* real_derivatives_and_bits,
 }
 
 __device__ __forceinline__
-int nonlinear_term_field_index(const int term_index) { return term_index; }
+int explicit_term_field_index(const int term_index) { return term_index; }
 
-__device__ void get_nonlinear_terms(const size_t index,
+__device__ void add_nonlinear_terms(const size_t index,
                                     const FLUCS_COMPLEX* dft_bits,
-                                    FLUCS_COMPLEX* nonlinear_terms) {
+                                    FLUCS_COMPLEX* explicit_terms) {
 
     indices3d_t indices = get_indices3d<1, NX, HALF_NY>(index);
     const size_t ikx = indices.ikx;
@@ -215,12 +212,12 @@ __device__ void get_nonlinear_terms(const size_t index,
     const FLUCS_FLOAT kperp2 = kx*kx + ky*ky + (FLUCS_FLOAT)(index == 0);
     const FLUCS_FLOAT eta_inv = (FLUCS_FLOAT)(1.0) / ((FLUCS_FLOAT)(iky > 0) + kperp2);
     
-    nonlinear_terms[0] = DFT_PADDEDSIZE_FACTOR * \
+    explicit_terms[0] += DFT_PADDEDSIZE_FACTOR * \
         eta_inv*(dft_bits[padded_index]
                  - kx*ky*dft_bits[padded_index + HALFPADDEDSIZE]
                  + kx2mky2*dft_bits[padded_index + 2*HALFPADDEDSIZE]);
 
-    nonlinear_terms[1] = DFT_PADDEDSIZE_FACTOR * (
+    explicit_terms[1] += DFT_PADDEDSIZE_FACTOR * (
                               FLUCS_COMPLEX(-ky * dft_bits[padded_index + 3*HALFPADDEDSIZE].imag(),
                                              ky * dft_bits[padded_index + 3*HALFPADDEDSIZE].real())
                              +FLUCS_COMPLEX( kx * dft_bits[padded_index + 4*HALFPADDEDSIZE].imag(),

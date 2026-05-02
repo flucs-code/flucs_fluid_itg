@@ -19,7 +19,7 @@ from .cold_itg_2d_fourier_diagnostics import FreeEnergyDiag, HeatfluxDiag
 class ColdITG2DFourier(FourierSystem):
     """Fourier solver for the 2D system."""
     number_of_fields = 2
-    number_of_fields_nonlinear = 2
+    number_of_fields_explicit = 2
     number_of_dft_derivatives = 5
     number_of_dft_bits = 5
 
@@ -47,11 +47,6 @@ class ColdITG2DFourier(FourierSystem):
 
     def ready(self):
         # Anything system-specific goes here
-
-        if not self.input["setup.linear"]:
-            cupy_set_device_pointer(self.cupy_module,
-                                    "multistep_nonlinear_terms",
-                                    self.multistep_nonlinear_terms)
         super().ready()
 
     def setup_cuda_grids(self) -> None:
