@@ -151,6 +151,7 @@ class FreeEnergyDiag(FlucsDiagnostic):
 
     def execute(self):
         current_dt = self.system.float(self.system.current_dt)
+        adaptive_rate = self.system.float(self.system.adaptive_rate)
 
         fields = self.system.fields[self.system.current_step % 2]
         fields_previous = self.system.fields[self.system.current_step % 2 - 1]
@@ -228,7 +229,7 @@ class FreeEnergyDiag(FlucsDiagnostic):
             kernel(
                 (self.system.nx,),
                 (BLOCK_SIZE,),
-                (fields, current_dt, self.real_temp),
+                (fields, adaptive_rate, self.real_temp),
                 shared_mem=THREADS_PER_WARP * self.system.float().nbytes)
 
             self.real_last_axis_sum_nx_kernel(
