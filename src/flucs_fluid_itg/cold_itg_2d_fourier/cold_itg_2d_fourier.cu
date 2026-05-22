@@ -235,14 +235,15 @@ struct FreeEnergy_Functor {
     }
 };
 
-
 __global__
 void heatflux_kx(
     const FLUCS_COMPLEX* phi,
     const FLUCS_COMPLEX* T,
     FLUCS_COMPLEX* output){
 
-    multiply_and_sum_last_axis<HALF_NY, true>(
+    multiply_and_sum_last_axis(
+            HALF_NY,
+            true,
             COMPLEX_ONE,
             output,
             Dy_Functor{phi},
@@ -257,7 +258,9 @@ void dW_kx(
     const FLUCS_COMPLEX* __restrict__ fields_previous,
     FLUCS_FLOAT* output){
 
-    add_and_sum_last_axis<HALF_NY, true>(
+    add_and_sum_last_axis(
+            HALF_NY,
+            true,
             FLOAT_ONE,
             output,
             FreeEnergy_Functor{fields, FLOAT_ONE},
@@ -271,7 +274,9 @@ void free_energy_kx(
     const FLUCS_COMPLEX* fields,
     FLUCS_FLOAT* output){
 
-    add_and_sum_last_axis<HALF_NY, true>(
+    add_and_sum_last_axis(
+            HALF_NY,
+            true,
             FLOAT_ONE,
             output,
             FreeEnergy_Functor{fields, FLOAT_ONE}
@@ -284,7 +289,9 @@ void free_energy_collisional_loss_kx(
     const FLUCS_COMPLEX* T,
     FLUCS_COMPLEX* output){
 
-    multiply_and_sum_last_axis<HALF_NY, true>(
+    multiply_and_sum_last_axis(
+            HALF_NY,
+            true,
             FLUCS_COMPLEX(CHI, 0),
             output,
             DelPerp2_Functor{T},
@@ -299,7 +306,9 @@ void W_hyperdissipation_kx_kx(
     const FLUCS_FLOAT adaptive_rate,
     FLUCS_FLOAT* output
 ) {
-    add_and_sum_last_axis<HALF_NY, true>(
+    add_and_sum_last_axis(
+        HALF_NY,
+        true,
         FLOAT_ONE,
         output,
         HyperdissipationKx_Functor<FreeEnergy_Functor>{
@@ -314,7 +323,9 @@ void W_hyperdissipation_ky_kx(
     const FLUCS_FLOAT adaptive_rate,
     FLUCS_FLOAT* output
 ) {
-    add_and_sum_last_axis<HALF_NY, true>(
+    add_and_sum_last_axis(
+        HALF_NY,
+        true,
         FLOAT_ONE,
         output,
         HyperdissipationKy_Functor<FreeEnergy_Functor>{
@@ -328,7 +339,9 @@ void W_hyperdissipation_kz_kx(
     const FLUCS_FLOAT adaptive_rate,
     FLUCS_FLOAT* output
 ) {
-    add_and_sum_last_axis<HALF_NY, true>(
+    add_and_sum_last_axis(
+        HALF_NY,
+        true,
         FLOAT_ONE,
         output,
         HyperdissipationKz_Functor<FreeEnergy_Functor>{
@@ -342,7 +355,9 @@ void W_hyperdissipation_perp_kx(
     const FLUCS_FLOAT adaptive_rate,
     FLUCS_FLOAT* output
 ) {
-    add_and_sum_last_axis<HALF_NY, true>(
+    add_and_sum_last_axis(
+        HALF_NY,
+        true,
         FLOAT_ONE,
         output,
         HyperdissipationPerp_Functor<FreeEnergy_Functor>{
