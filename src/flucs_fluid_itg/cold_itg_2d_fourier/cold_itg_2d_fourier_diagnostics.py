@@ -15,7 +15,6 @@ class HeatfluxDiag(FlucsDiagnostic):
             is_complex=False
         ))
         self.get_heatflux = self.system.create_reduction(
-            reduction_name="heatflux",
             shape=(1, self.system.nx),
             data_kernel_name="heatflux_kx",
             is_complex=True,
@@ -52,7 +51,6 @@ class FreeEnergyDiag(FlucsDiagnostic):
             is_complex=False
         ))
         self.get_W = self.system.create_reduction(
-            reduction_name="free_energy",
             shape=(1, self.system.nx),
             data_kernel_name="free_energy_kx",
             is_complex=False,
@@ -66,7 +64,6 @@ class FreeEnergyDiag(FlucsDiagnostic):
             is_complex=False
         ))
         self.get_dW = self.system.create_reduction(
-            reduction_name="dW",
             shape=(1, self.system.nx),
             data_kernel_name="dW_kx",
             is_complex=False,
@@ -80,7 +77,6 @@ class FreeEnergyDiag(FlucsDiagnostic):
             is_complex=False
         ))
         self.get_dWdt_coll = self.system.create_reduction(
-            reduction_name="dWdt_coll",
             shape=(1, self.system.nx),
             data_kernel_name="free_energy_collisional_loss_kx",
             is_complex=True,
@@ -94,7 +90,6 @@ class FreeEnergyDiag(FlucsDiagnostic):
             is_complex=False
         ))
         self.get_heatflux = self.system.create_reduction(
-            reduction_name="heatflux",
             shape=(1, self.system.nx),
             data_kernel_name="heatflux_kx",
             is_complex=True,
@@ -109,7 +104,6 @@ class FreeEnergyDiag(FlucsDiagnostic):
                 )
             )
             get_hyperdiss = self.system.create_reduction(
-                reduction_name=f"W_hyperdissipation_{component}",
                 shape=(1, self.system.nx),
                 data_kernel_name=f"W_hyperdissipation_{component}_kx",
                 is_complex=False,
