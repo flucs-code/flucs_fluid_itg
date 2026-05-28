@@ -2,6 +2,7 @@ import cupy as cp
 from collections.abc import Callable
 import numpy as np
 from flucs.diagnostic import FlucsDiagnostic, FlucsDiagnosticVariable
+from flucs.solvers.fourier.fourier_system_reductions import reduce_unpadded_to_scalar
 
 class HeatfluxDiag(FlucsDiagnostic):
     name = "heatflux"
@@ -14,10 +15,11 @@ class HeatfluxDiag(FlucsDiagnostic):
             dimensions={},
             is_complex=False
         ))
-        self.get_heatflux = self.system.create_reduction(
-            shape=(1, self.system.nx),
-            data_kernel_name="heatflux_kx",
-            is_complex=True,
+        self.get_heatflux = reduce_unpadded_to_scalar(
+            self.system,
+            functor="Heatflux_Functor",
+            input_args="FLUCS_COMPLEX*",
+            complex_output=False,
         )
 
     def ready(self):
@@ -38,9 +40,7 @@ class FreeEnergyDiag(FlucsDiagnostic):
     get_dW: Callable[..., cp.ndarray]
     get_dWdt_coll: Callable[..., cp.ndarray]
     get_heatflux: Callable[..., cp.ndarray]
-    get_W_hyperdissipation_perp: Callable[..., cp.ndarray]
-    get_W_hyperdissipation_kx: Callable[..., cp.ndarray]
-    get_W_hyperdissipation_ky: Callable[..., cp.ndarray]
+    get_W_hyperdissipation: Callable[..., cp.ndarray]
 
     def init_vars(self):
         # Total free energy W
@@ -50,10 +50,12 @@ class FreeEnergyDiag(FlucsDiagnostic):
             dimensions={},
             is_complex=False
         ))
-        self.get_W = self.system.create_reduction(
-            shape=(1, self.system.nx),
-            data_kernel_name="free_energy_kx",
-            is_complex=False,
+
+        self.get_W = reduce_unpadded_to_scalar(
+            self.system,
+            functor="FreeEnergy_Functor",
+            input_args="FLUCS_COMPLEX*",
+            complex_output=False,
         )
 
         # Numerical time derivative of W
@@ -63,11 +65,6 @@ class FreeEnergyDiag(FlucsDiagnostic):
             dimensions={},
             is_complex=False
         ))
-        self.get_dW = self.system.create_reduction(
-            shape=(1, self.system.nx),
-            data_kernel_name="dW_kx",
-            is_complex=False,
-        )
 
         # Collisional dissipation of W
         self.add_var(FlucsDiagnosticVariable(
@@ -76,10 +73,11 @@ class FreeEnergyDiag(FlucsDiagnostic):
             dimensions={},
             is_complex=False
         ))
-        self.get_dWdt_coll = self.system.create_reduction(
-            shape=(1, self.system.nx),
-            data_kernel_name="free_energy_collisional_loss_kx",
-            is_complex=True,
+        self.get_dWdt_coll = reduce_unpadded_to_scalar(
+            self.system,
+            functor="FreeEnergyColl_Functor",
+            input_args="FLUCS_COMPLEX*",
+            complex_output=False,
         )
 
         # Injection of W
@@ -89,10 +87,11 @@ class FreeEnergyDiag(FlucsDiagnostic):
             dimensions={},
             is_complex=False
         ))
-        self.get_heatflux = self.system.create_reduction(
-            shape=(1, self.system.nx),
-            data_kernel_name="heatflux_kx",
-            is_complex=True,
+        self.get_heatflux = reduce_unpadded_to_scalar(
+            self.system,
+            functor="Heatflux_Functor",
+            input_args="FLUCS_COMPLEX*",
+            complex_output=False,
         )
 
         for component in ["perp", "kx", "ky"]:
@@ -103,12 +102,13 @@ class FreeEnergyDiag(FlucsDiagnostic):
                 is_complex=False
                 )
             )
-            get_hyperdiss = self.system.create_reduction(
-                shape=(1, self.system.nx),
-                data_kernel_name=f"W_hyperdissipation_{component}_kx",
-                is_complex=False,
-            )
-            setattr(self, f"get_W_hyperdissipation_{component}", get_hyperdiss)
+
+        self.get_W_hyperdissipation = reduce_unpadded_to_scalar(
+            self.system,
+            functor="FreeEnergyHyperdissipation_Functor",
+            input_args="FLUCS_COMPLEX*,FLUCS_FLOAT,int",
+            complex_output=False,
+        )
 
         self.add_var(FlucsDiagnosticVariable(
             name="dWdt_error",
@@ -128,16 +128,14 @@ class FreeEnergyDiag(FlucsDiagnostic):
         fields_previous = self.system.fields[self.system.current_step % 2 - 1]
         phi = self.system.phi[self.system.current_step % 2]
         T = self.system.T[self.system.current_step % 2]
+        W = self.get_W(fields).get().item()
 
         # W
-        self.save_data(
-            "W",
-            self.get_W(fields).get().item()
-        )
+        self.save_data("W", W)
 
         # numerical dW/dt
-        result = self.get_dW(fields, fields_previous)
-        dWdt = result.get().item() / current_dt
+        W_prev = self.get_W(fields_previous)
+        dWdt = (W - W_prev.get().item()) / current_dt
         self.save_data("dWdt", dWdt)
 
         # dW/dt_coll
@@ -145,16 +143,15 @@ class FreeEnergyDiag(FlucsDiagnostic):
         self.save_data("dWdt_coll", dWdt_coll)
 
         # dW/dt_inj
-        result = self.get_heatflux(phi, T).get().item().real
+        result = self.get_heatflux(fields).get().item().real
         dWdt_inj = -self.system.input["parameters.kappaT"] * result
         self.save_data("dWdt_inj", dWdt_inj)
 
         # Hyperdissipation
         dWdt_hyperdissipation_total = 0.0
-        for component in ["perp", "kx", "ky"]:
-            reduction = getattr(self, f"get_W_hyperdissipation_{component}")
-            result = reduction(
-                fields, adaptive_rate
+        for index, component in enumerate(["perp", "kx", "ky"]):
+            result = self.get_W_hyperdissipation(
+                fields, adaptive_rate, index
             )
 
             dWdt_hyperdissipation_component = -result.get().item()

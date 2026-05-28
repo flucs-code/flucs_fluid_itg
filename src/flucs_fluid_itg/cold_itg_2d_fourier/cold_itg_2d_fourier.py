@@ -30,6 +30,11 @@ class ColdITG2DFourier(FourierSystem):
     real_dxphi: cp.ndarray
     real_dxphi_zonal: cp.ndarray
 
+    # CUDA kernels
+    find_derivatives: KernelWrapper
+    find_nonlinear_bits: KernelWrapper
+    zonal_average: KernelWrapper
+
     # Supported diagnostics
     diags: ClassVar[set[type[FlucsDiagnostic]]] = {
         HeatfluxDiag, FreeEnergyDiag
@@ -39,8 +44,8 @@ class ColdITG2DFourier(FourierSystem):
         # Anything system-specific goes here
         super().ready()
 
-    def setup_kernels(self) -> None:
-        super().setup_kernels()
+    def register_kernels(self) -> None:
+        super().register_kernels()
 
         # Setup kernel parameters (grid, block, shared memory)
         zonal_average_cuda_block = (256,)
@@ -52,14 +57,14 @@ class ColdITG2DFourier(FourierSystem):
         )
 
         # System-specific kernels
-        self.kernels["find_derivatives"] = KernelWrapper(
+        self.find_derivatives = KernelWrapper(
             system=self,
             cuda_kernel_name="find_derivatives",
             grid=(self.half_padded_cuda_grid_size,),
             block=(self.cuda_block_size,),
         )
 
-        self.kernels["find_nonlinear_bits"] = KernelWrapper(
+        self.find_nonlinear_bits = KernelWrapper(
             system=self,
             cuda_kernel_name="find_nonlinear_bits",
             grid=(self.full_padded_cuda_grid_size,),
@@ -67,7 +72,7 @@ class ColdITG2DFourier(FourierSystem):
             shared_mem=nonlinear_bits_shared_mem,
         )
 
-        self.kernels["zonal_average"] = KernelWrapper(
+        self.zonal_average = KernelWrapper(
             system=self,
             cuda_kernel_name="last_axis_average_float",
             grid=zonal_average_cuda_grid,
@@ -147,7 +152,7 @@ class ColdITG2DFourier(FourierSystem):
                 "Hyperdissipation in kz is not supported for 2D systems."
             )
 
-    def compile_cupy_module(self) -> None:
+    def setup_cuda_defs(self) -> None:
         # System-specific constants for the kernels
         self.module_options.define_float("CHI",
                                             self.input["parameters.chi"])
@@ -167,7 +172,7 @@ class ColdITG2DFourier(FourierSystem):
                                             self.input["parameters.kappaB"])
 
         # Call this to compile the module
-        super().compile_cupy_module()
+        super().setup_cuda_defs()
 
     def begin_time_step(self) -> None:
         # Do anything model-specific here, then call the parent's method
@@ -180,7 +185,7 @@ class ColdITG2DFourier(FourierSystem):
         nonlinear CFL coefficient.
 
         """
-        self.kernels["find_derivatives"](
+        self.find_derivatives(
             self.fields[self.current_step % 2 - 1],
             self.dft_derivatives,
             self.real_dxphi_zonal,
@@ -191,7 +196,7 @@ class ColdITG2DFourier(FourierSystem):
                                       self.real_derivatives,
                                       cufft.CUFFT_INVERSE)
 
-        self.kernels["zonal_average"](
+        self.zonal_average(
             self.padded_ny,
             False,
             self.real_dxphi,
@@ -199,7 +204,7 @@ class ColdITG2DFourier(FourierSystem):
         )
 
         # NB: real_derivatives and real_bits are the same array
-        self.kernels["find_nonlinear_bits"](
+        self.find_nonlinear_bits(
             self.real_derivatives,
             self.real_dxphi_zonal,
             self.cfl_rate,
