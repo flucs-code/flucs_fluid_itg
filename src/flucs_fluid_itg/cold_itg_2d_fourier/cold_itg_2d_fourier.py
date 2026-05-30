@@ -31,9 +31,9 @@ class ColdITG2DFourier(FourierSystem):
     real_dxphi_zonal: cp.ndarray
 
     # CUDA kernels
-    find_derivatives: KernelWrapper
-    find_nonlinear_bits: KernelWrapper
-    zonal_average: KernelWrapper
+    find_derivatives_kernel: KernelWrapper
+    find_nonlinear_bits_kernel: KernelWrapper
+    zonal_average_kernel: KernelWrapper
 
     # Supported diagnostics
     diags: ClassVar[set[type[FlucsDiagnostic]]] = {
@@ -57,14 +57,14 @@ class ColdITG2DFourier(FourierSystem):
         )
 
         # System-specific kernels
-        self.find_derivatives = KernelWrapper(
+        self.find_derivatives_kernel = KernelWrapper(
             system=self,
             cuda_kernel_name="find_derivatives",
             grid=(self.half_padded_cuda_grid_size,),
             block=(self.cuda_block_size,),
         )
 
-        self.find_nonlinear_bits = KernelWrapper(
+        self.find_nonlinear_bits_kernel = KernelWrapper(
             system=self,
             cuda_kernel_name="find_nonlinear_bits",
             grid=(self.full_padded_cuda_grid_size,),
@@ -72,7 +72,7 @@ class ColdITG2DFourier(FourierSystem):
             shared_mem=nonlinear_bits_shared_mem,
         )
 
-        self.zonal_average = KernelWrapper(
+        self.zonal_average_kernel = KernelWrapper(
             system=self,
             cuda_kernel_name="last_axis_average_float",
             grid=zonal_average_cuda_grid,
@@ -185,18 +185,20 @@ class ColdITG2DFourier(FourierSystem):
         nonlinear CFL coefficient.
 
         """
-        self.find_derivatives(
+        self.find_derivatives_kernel(
             self.fields[self.current_step % 2 - 1],
             self.dft_derivatives,
             self.real_dxphi_zonal,
             self.cfl_rate
         )
 
-        self.plan_derivatives_c2r.fft(self.dft_derivatives,
-                                      self.real_derivatives,
-                                      cufft.CUFFT_INVERSE)
+        self.plan_derivatives_c2r.fft(
+            self.dft_derivatives,
+            self.real_derivatives,
+            cufft.CUFFT_INVERSE
+        )
 
-        self.zonal_average(
+        self.zonal_average_kernel(
             self.padded_ny,
             False,
             self.real_dxphi,
@@ -204,14 +206,18 @@ class ColdITG2DFourier(FourierSystem):
         )
 
         # NB: real_derivatives and real_bits are the same array
-        self.find_nonlinear_bits(
+        self.find_nonlinear_bits_kernel(
             self.real_derivatives,
             self.real_dxphi_zonal,
             self.cfl_rate,
         )
 
         # NB: real_derivatives and real_bits are the same array
-        self.plan_bits_r2c.fft(self.real_bits, self.dft_bits, cufft.CUFFT_FORWARD)
+        self.plan_bits_r2c.fft(
+            self.real_bits, 
+            self.dft_bits, 
+            cufft.CUFFT_FORWARD
+        )
 
         super().calculate_nonlinear_terms()
 
