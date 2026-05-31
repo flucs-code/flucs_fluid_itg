@@ -26,11 +26,10 @@ class HeatfluxDiag(FlucsDiagnostic):
         pass
 
     def execute(self):
-        phi = self.system.phi[self.system.current_step % 2]
-        T = self.system.T[self.system.current_step % 2]
+        fields = self.system.fields[self.system.current_step % 2]
 
         self.vars["heatflux"].data_cache.append(
-            -self.get_heatflux(phi, T).get().item().real
+            self.get_heatflux(fields).get().item()
         )
 
 
@@ -94,7 +93,10 @@ class FreeEnergyDiag(FlucsDiagnostic):
             complex_output=False,
         )
 
-        for component in ["perp", "kx", "ky"]:
+        for component in self.system.hyperdissipation_components:
+            if component == "kz": # The model is 2D
+                continue
+
             self.add_var(FlucsDiagnosticVariable(
                 name=f"dWdt_hyperdissipation_{component}",
                 shape=(),
@@ -126,30 +128,31 @@ class FreeEnergyDiag(FlucsDiagnostic):
 
         fields = self.system.fields[self.system.current_step % 2]
         fields_previous = self.system.fields[self.system.current_step % 2 - 1]
-        phi = self.system.phi[self.system.current_step % 2]
-        T = self.system.T[self.system.current_step % 2]
-        W = self.get_W(fields).get().item()
 
         # W
+        W = self.get_W(fields).get().item()
         self.save_data("W", W)
 
-        # numerical dW/dt
+        # dW/dt
         W_prev = self.get_W(fields_previous)
         dWdt = (W - W_prev.get().item()) / current_dt
         self.save_data("dWdt", dWdt)
 
         # dW/dt_coll
-        dWdt_coll = self.get_dWdt_coll(T).get().item().real
+        dWdt_coll = self.get_dWdt_coll(fields).get().item()
         self.save_data("dWdt_coll", dWdt_coll)
 
         # dW/dt_inj
-        result = self.get_heatflux(fields).get().item().real
-        dWdt_inj = -self.system.input["parameters.kappaT"] * result
+        heatflux = self.get_heatflux(fields).get().item().real
+        dWdt_inj = self.system.input["parameters.kappaT"] * heatflux
         self.save_data("dWdt_inj", dWdt_inj)
 
         # Hyperdissipation
         dWdt_hyperdissipation_total = 0.0
-        for index, component in enumerate(["perp", "kx", "ky"]):
+        for index, component in enumerate(self.system.hyperdissipation_components):
+            if component == "kz":
+                continue
+
             result = self.get_W_hyperdissipation(
                 fields, adaptive_rate, index
             )
