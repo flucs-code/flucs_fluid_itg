@@ -152,7 +152,7 @@ class ColdITG2DFourier(FourierSystem):
                 "Hyperdissipation in kz is not supported for 2D systems."
             )
 
-    def setup_cuda_defs(self) -> None:
+    def setup_cuda_definitions(self) -> None:
         # System-specific constants for the kernels
         self.module_options.define_float("CHI",
                                             self.input["parameters.chi"])
@@ -172,7 +172,7 @@ class ColdITG2DFourier(FourierSystem):
                                             self.input["parameters.kappaB"])
 
         # Call this to compile the module
-        super().setup_cuda_defs()
+        super().setup_cuda_definitions()
 
     def begin_time_step(self) -> None:
         # Do anything model-specific here, then call the parent's method
