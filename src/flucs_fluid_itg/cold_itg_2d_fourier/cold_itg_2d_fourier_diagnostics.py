@@ -36,7 +36,6 @@ class HeatfluxDiag(FlucsDiagnostic):
 class FreeEnergyDiag(FlucsDiagnostic):
     name = "free_energy"
     get_W: Callable[..., cp.ndarray]
-    get_dW: Callable[..., cp.ndarray]
     get_dWdt_coll: Callable[..., cp.ndarray]
     get_heatflux: Callable[..., cp.ndarray]
     get_W_hyperdissipation: Callable[..., cp.ndarray]
