@@ -2,21 +2,23 @@ import cupy as cp
 from collections.abc import Callable
 import numpy as np
 from flucs.diagnostic import FlucsDiagnostic, FlucsDiagnosticVariable
-from flucs.solvers.fourier.fourier_system_reductions import reduce_unpadded_to_scalar
+from flucs.solvers.fourier.fourier_system_reductions import FourierReductions
 
 class HeatfluxDiag(FlucsDiagnostic):
     name = "heatflux"
     get_heatflux: Callable[..., cp.ndarray]
 
     def init_vars(self):
+        reductions = FourierReductions(self.system)
+
         self.add_var(FlucsDiagnosticVariable(
             name="heatflux",
             shape=(),
             dimensions={},
             is_complex=False
         ))
-        self.get_heatflux = reduce_unpadded_to_scalar(
-            self.system,
+        self.get_heatflux = reductions.get_reduction(
+            reduction_output="scalar",
             functor="Heatflux_Functor",
             input_args="FLUCS_COMPLEX*",
             complex_output=False,
@@ -41,6 +43,8 @@ class FreeEnergyDiag(FlucsDiagnostic):
     get_W_hyperdissipation: Callable[..., cp.ndarray]
 
     def init_vars(self):
+        reductions = FourierReductions(self.system)
+
         # Total free energy W
         self.add_var(FlucsDiagnosticVariable(
             name="W",
@@ -49,8 +53,8 @@ class FreeEnergyDiag(FlucsDiagnostic):
             is_complex=False
         ))
 
-        self.get_W = reduce_unpadded_to_scalar(
-            self.system,
+        self.get_W = reductions.get_reduction(
+            reduction_output="scalar",
             functor="FreeEnergy_Functor",
             input_args="FLUCS_COMPLEX*",
             complex_output=False,
@@ -71,8 +75,8 @@ class FreeEnergyDiag(FlucsDiagnostic):
             dimensions={},
             is_complex=False
         ))
-        self.get_dWdt_coll = reduce_unpadded_to_scalar(
-            self.system,
+        self.get_dWdt_coll = reductions.get_reduction(
+            reduction_output="scalar",
             functor="FreeEnergyColl_Functor",
             input_args="FLUCS_COMPLEX*",
             complex_output=False,
@@ -85,8 +89,8 @@ class FreeEnergyDiag(FlucsDiagnostic):
             dimensions={},
             is_complex=False
         ))
-        self.get_heatflux = reduce_unpadded_to_scalar(
-            self.system,
+        self.get_heatflux = reductions.get_reduction(
+            reduction_output="scalar",
             functor="Heatflux_Functor",
             input_args="FLUCS_COMPLEX*",
             complex_output=False,
@@ -104,8 +108,8 @@ class FreeEnergyDiag(FlucsDiagnostic):
                 )
             )
 
-        self.get_W_hyperdissipation = reduce_unpadded_to_scalar(
-            self.system,
+        self.get_W_hyperdissipation = reductions.get_reduction(
+            reduction_output="scalar",
             functor="FreeEnergyHyperdissipation_Functor",
             input_args="FLUCS_COMPLEX*,FLUCS_FLOAT,int",
             complex_output=False,
