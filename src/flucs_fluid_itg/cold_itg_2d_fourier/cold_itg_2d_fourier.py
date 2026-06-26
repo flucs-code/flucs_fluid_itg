@@ -11,7 +11,7 @@ from cupy.cuda import cufft
 from flucs.input import InvalidFlucsInputFileError
 from flucs.diagnostic import FlucsDiagnostic
 from flucs.solvers.fourier.fourier_system import FourierSystem
-from flucs.utilities.cupy import cupy_set_device_pointer
+from flucs.utilities.cupy import KernelWrapper
 
 from .cold_itg_2d_fourier_diagnostics import FreeEnergyDiag, HeatfluxDiag
 
@@ -30,15 +30,10 @@ class ColdITG2DFourier(FourierSystem):
     real_dxphi: cp.ndarray
     real_dxphi_zonal: cp.ndarray
 
-    # CUDA grids and kernels
-    zonal_average_cuda_block: tuple
-    zonal_average_cuda_grid: tuple
-    zonal_average_shared_mem: int
-    nonlinear_bits_shared_mem: int
-
-    find_derivatives_kernel: cp.RawKernel
-    find_nonlinear_bits_kernel: cp.RawKernel
-    zonal_average_kernel: cp.RawKernel
+    # CUDA kernels
+    find_derivatives_kernel: KernelWrapper
+    find_nonlinear_bits_kernel: KernelWrapper
+    zonal_average_kernel: KernelWrapper
 
     # Supported diagnostics
     diags: ClassVar[set[type[FlucsDiagnostic]]] = {
@@ -49,16 +44,40 @@ class ColdITG2DFourier(FourierSystem):
         # Anything system-specific goes here
         super().ready()
 
-    def setup_cuda_grids(self) -> None:
-        super().setup_cuda_grids()
+    def register_kernels(self) -> None:
+        super().register_kernels()
 
         # Setup kernel parameters (grid, block, shared memory)
-        self.zonal_average_cuda_block = (256,)
-        self.zonal_average_cuda_grid = (self.padded_nx,)
-        self.zonal_average_shared_mem = 32 * self.float().nbytes
+        zonal_average_cuda_block = (256,)
+        zonal_average_cuda_grid = (self.padded_nx,)
+        zonal_average_shared_mem = 32 * self.float().nbytes
 
-        self.nonlinear_bits_shared_mem = (
+        nonlinear_bits_shared_mem = (
             self.cuda_block_size * self.float().nbytes
+        )
+
+        # System-specific kernels
+        self.find_derivatives_kernel = KernelWrapper(
+            system=self,
+            cuda_kernel_name="find_derivatives",
+            grid=(self.half_padded_cuda_grid_size,),
+            block=(self.cuda_block_size,),
+        )
+
+        self.find_nonlinear_bits_kernel = KernelWrapper(
+            system=self,
+            cuda_kernel_name="find_nonlinear_bits",
+            grid=(self.full_padded_cuda_grid_size,),
+            block=(self.cuda_block_size,),
+            shared_mem=nonlinear_bits_shared_mem,
+        )
+
+        self.zonal_average_kernel = KernelWrapper(
+            system=self,
+            cuda_kernel_name="last_axis_average_float",
+            grid=zonal_average_cuda_grid,
+            block=zonal_average_cuda_block,
+            shared_mem=zonal_average_shared_mem,
         )
 
     def _allocate_memory(self) -> None:
@@ -133,7 +152,7 @@ class ColdITG2DFourier(FourierSystem):
                 "Hyperdissipation in kz is not supported for 2D systems."
             )
 
-    def compile_cupy_module(self) -> None:
+    def setup_cuda_definitions(self) -> None:
         # System-specific constants for the kernels
         self.module_options.define_float("CHI",
                                             self.input["parameters.chi"])
@@ -153,64 +172,54 @@ class ColdITG2DFourier(FourierSystem):
                                             self.input["parameters.kappaB"])
 
         # Call this to compile the module
-        super().compile_cupy_module()
-
-        # System-specific kernels
-        self.find_derivatives_kernel =\
-            self.cupy_module.get_function("find_derivatives")
-
-        self.find_nonlinear_bits_kernel =\
-            self.cupy_module.get_function("find_nonlinear_bits")
-
-        self.zonal_average_kernel =\
-            self.cupy_module.get_function("last_axis_average_padded_ny")
+        super().setup_cuda_definitions()
 
     def begin_time_step(self) -> None:
         # Do anything model-specific here, then call the parent's method
         super().begin_time_step()
 
-    def calculate_nonlinear_terms(self) -> None:
+    def compute_nonlinear_terms(self, fields: cp.ndarray) -> None:
         """
-        Calculates the nonlinear terms. This is the most computationaly
-        intensive part of taking a time step. Here, we also determine the
-        nonlinear CFL coefficient.
+        Computes the nonlinear terms for the supplied fields. Here, we also
+        determine the nonlinear CFL coefficient.
 
         """
-        self.find_derivatives_kernel((self.half_padded_cuda_grid_size,),
-                                     (self.cuda_block_size,),
-                                     (self.fields[self.current_step % 2 - 1],
-                                      self.dft_derivatives,
-                                      self.real_dxphi_zonal,
-                                      self.cfl_rate))
+        self.find_derivatives_kernel(
+            fields,
+            self.dft_derivatives,
+            self.real_dxphi_zonal,
+            self.cfl_rate
+        )
 
-        self.plan_derivatives_c2r.fft(self.dft_derivatives,
-                                      self.real_derivatives,
-                                      cufft.CUFFT_INVERSE)
+        self.plan_derivatives_c2r.fft(
+            self.dft_derivatives,
+            self.real_derivatives,
+            cufft.CUFFT_INVERSE
+        )
 
-
-        self.zonal_average_kernel(self.zonal_average_cuda_grid,
-                                  self.zonal_average_cuda_block,
-                                  (self.real_dxphi, self.real_dxphi_zonal),
-                                  shared_mem=self.zonal_average_shared_mem)
-
-        # NB: real_derivatives and real_bits are the same array
-        self.find_nonlinear_bits_kernel(
-            (self.full_padded_cuda_grid_size,),
-            (self.cuda_block_size,),
-            (self.real_derivatives,
-             self.real_dxphi_zonal,
-             self.cfl_rate),
-            shared_mem=self.nonlinear_bits_shared_mem
+        self.zonal_average_kernel(
+            self.padded_ny,
+            False,
+            self.real_dxphi,
+            self.real_dxphi_zonal
         )
 
         # NB: real_derivatives and real_bits are the same array
-        self.plan_bits_r2c.fft(self.real_bits, self.dft_bits, cufft.CUFFT_FORWARD)
+        self.find_nonlinear_bits_kernel(
+            self.real_derivatives,
+            self.real_dxphi_zonal,
+            self.cfl_rate,
+        )
 
-        super().calculate_nonlinear_terms()
+        # NB: real_derivatives and real_bits are the same array
+        self.plan_bits_r2c.fft(
+            self.real_bits, 
+            self.dft_bits, 
+            cufft.CUFFT_FORWARD
+        )
 
     def finish_time_step(self) -> None:
         super().finish_time_step()
-
 
     def compute_linear_matrix_reference(self) -> np.ndarray:
 
