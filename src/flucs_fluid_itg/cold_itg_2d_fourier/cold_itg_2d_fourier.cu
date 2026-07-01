@@ -185,9 +185,6 @@ __global__ void find_nonlinear_bits(FLUCS_FLOAT* real_derivatives_and_bits,
     real_derivatives_and_bits[real_index + 4*PADDEDSIZE] = dyphi * p;
 }
 
-__device__ __forceinline__
-int explicit_term_field_index(const int term_index) { return term_index; }
-
 __device__ void add_nonlinear_terms(const size_t index,
                                     const FLUCS_COMPLEX* dft_bits,
                                     FLUCS_COMPLEX* explicit_terms) {

@@ -19,7 +19,6 @@ from .cold_itg_2d_fourier_diagnostics import FreeEnergyDiag, HeatfluxDiag
 class ColdITG2DFourier(FourierSystem):
     """Fourier solver for the 2D system."""
     number_of_fields = 2
-    number_of_fields_explicit = 2
     number_of_dft_derivatives = 5
     number_of_dft_bits = 5
 
