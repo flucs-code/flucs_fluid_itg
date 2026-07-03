@@ -7,7 +7,13 @@
 
 extern "C" {
 
-__device__ void get_linear_matrix(const size_t index, const FLUCS_FLOAT dt, FLUCS_COMPLEX matrix[2][2]){
+__device__ void get_linear_matrix(
+    const size_t index,
+    const FLUCS_FLOAT dt,
+    const FLUCS_FLOAT current_time,
+    const long long current_step,
+    FLUCS_COMPLEX matrix[2][2]
+) {
     // First, we need to figure out the kx and ky of the mode.
     // const size_t ikx = index / HALF_NY;
     // const size_t iky = index % HALF_NY;
@@ -186,6 +192,9 @@ __global__ void find_nonlinear_bits(FLUCS_FLOAT* real_derivatives_and_bits,
 }
 
 __device__ void add_nonlinear_terms(const size_t index,
+                                    const FLUCS_FLOAT dt,
+                                    const FLUCS_FLOAT current_time,
+                                    const long long current_step,
                                     const FLUCS_COMPLEX* dft_bits,
                                     FLUCS_COMPLEX* explicit_terms) {
 
