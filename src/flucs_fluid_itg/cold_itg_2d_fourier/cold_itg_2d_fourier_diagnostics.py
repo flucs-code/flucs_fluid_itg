@@ -28,7 +28,7 @@ class HeatfluxDiag(FlucsDiagnostic):
         pass
 
     def execute(self):
-        fields = self.system.fields[self.system.current_step % 2]
+        fields = self.system.get_fields()
 
         self.vars["heatflux"].data_cache.append(
             self.get_heatflux(fields).get().item()
@@ -129,8 +129,8 @@ class FreeEnergyDiag(FlucsDiagnostic):
         current_dt = self.system.float(self.system.current_dt)
         adaptive_rate = self.system.float(self.system.adaptive_rate)
 
-        fields = self.system.fields[self.system.current_step % 2]
-        fields_previous = self.system.fields[self.system.current_step % 2 - 1]
+        fields = self.system.get_fields()
+        fields_previous = self.system.get_fields(1)
 
         # W
         W = self.get_W(fields).get().item()
