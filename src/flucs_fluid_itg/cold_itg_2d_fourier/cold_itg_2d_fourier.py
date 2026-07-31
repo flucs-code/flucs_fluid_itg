@@ -154,21 +154,21 @@ class ColdITG2DFourier(FourierSystem):
     def setup_cuda_definitions(self) -> None:
         # System-specific constants for the kernels
         self.module_options.define_float("CHI",
-                                            self.input["parameters.chi"])
+                                         self.input["parameters.chi"])
         self.module_options.define_float("A_TIMES_CHI",
-                                            self.input["parameters.a"]
-                                            * self.input["parameters.chi"])
+                                         self.input["parameters.a"]
+                                         * self.input["parameters.chi"])
 
         self.module_options.define_float("B_TIMES_CHI",
-                                            self.input["parameters.b"]
-                                            * self.input["parameters.chi"])
+                                         self.input["parameters.b"]
+                                         * self.input["parameters.chi"])
 
         self.module_options.define_float("KAPPA_T",
-                                            self.input["parameters.kappaT"])
+                                         self.input["parameters.kappaT"])
         self.module_options.define_float("KAPPA_N",
-                                            self.input["parameters.kappan"])
+                                         self.input["parameters.kappan"])
         self.module_options.define_float("KAPPA_B",
-                                            self.input["parameters.kappaB"])
+                                         self.input["parameters.kappaB"])
 
         # Call this to compile the module
         super().setup_cuda_definitions()
@@ -212,8 +212,8 @@ class ColdITG2DFourier(FourierSystem):
 
         # NB: real_derivatives and real_bits are the same array
         self.plan_bits_r2c.fft(
-            self.real_bits, 
-            self.dft_bits, 
+            self.real_bits,
+            self.dft_bits,
             cufft.CUFFT_FORWARD
         )
 
@@ -225,15 +225,15 @@ class ColdITG2DFourier(FourierSystem):
         # Initialise linear matrix
         linear_matrix = np.zeros(
             (
-            self.number_of_fields, 
-            self.number_of_fields, 
-            *self.half_unpadded_tuple
+                self.number_of_fields,
+                self.number_of_fields,
+                *self.half_unpadded_tuple
             ),
             dtype=self.complex,
         )
 
         # Get wavenumbers
-        kx, ky, kz = self.get_broadcast_wavenumbers()
+        kx, ky, _ = self.get_broadcast_wavenumbers()
         kperp2 = kx**2 + ky**2
 
         # Get parameters
