@@ -57,8 +57,7 @@ __device__ void get_linear_matrix(
 __global__ void find_derivatives(
     const FLUCS_COMPLEX fields_global[NUMBER_OF_FIELDS][HALFUNPADDEDSIZE],
     FLUCS_COMPLEX dft_derivatives_global[NUMBER_OF_DFT_DERIVATIVES][HALFPADDEDSIZE],
-    FLUCS_FLOAT real_dxphi_zonal_global[PADDED_NX],
-    FLUCS_FLOAT* cfl_rate)
+    FLUCS_FLOAT real_dxphi_zonal_global[PADDED_NX])
 {
     const size_t padded_index = blockDim.x * blockIdx.x + threadIdx.x;
 
@@ -77,9 +76,6 @@ __global__ void find_derivatives(
     // Use this kernel to also zero out real_dxphi_zonal and cfl_rate
     if (padded_iky == 0)
         real_dxphi_zonal_global[padded_ikx] = 0;
-
-    if (padded_index == 0)
-        *cfl_rate = 0;
 
     // Check if mode should be zeroed
     if ((padded_ikx >= HALF_NX && padded_ikx < HALF_NX - NX + PADDED_NX)
@@ -125,10 +121,7 @@ __global__ void find_derivatives(
 
 __global__ void find_nonlinear_bits(FLUCS_FLOAT real_derivatives_and_bits_global[NUMBER_OF_DFT_COMBINED][PADDEDSIZE],
                                     const FLUCS_FLOAT real_dxphi_zonal_global[PADDED_NX],
-                                    FLUCS_FLOAT* cfl_rate){
-    // Shared memory for CFL calculations
-    extern __shared__ FLUCS_FLOAT cfl_shared[];
-
+                                    FLUCS_FLOAT* cfl_rate_global){
     const size_t real_index = blockDim.x * blockIdx.x + threadIdx.x;
     const bool in_bounds = real_index < PADDEDSIZE;
 
@@ -143,23 +136,7 @@ __global__ void find_nonlinear_bits(FLUCS_FLOAT real_derivatives_and_bits_global
     const FLUCS_FLOAT cfl = flucs_fabs(dxphi) * (NY / LY)
         + flucs_fabs(dyphi) * (NX / LX);
 
-    // Find max CFL using shared memory
-    // TODO: Could we speed this up by reducing over warps?
-    cfl_shared[threadIdx.x] = cfl;
-    __syncthreads();
-
-    // Parallel reduction in shared memory
-    for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
-        if (threadIdx.x < stride) {
-            cfl_shared[threadIdx.x] = flucs_fmax(cfl_shared[threadIdx.x], cfl_shared[threadIdx.x + stride]);
-        }
-        __syncthreads();
-    }
-
-    // First thread in block writes to global max via atomic
-    if (threadIdx.x == 0) {
-        atomicMaxFloat(cfl_rate, cfl_shared[0]); // custom atomic for float
-    }
+    update_cfl(cfl, cfl_rate_global);
 
     // Out-of-bounds threads should not contribute to nonlinear bits
     if (!in_bounds)

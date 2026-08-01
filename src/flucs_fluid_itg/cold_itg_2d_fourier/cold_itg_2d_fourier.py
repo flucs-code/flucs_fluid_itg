@@ -187,8 +187,9 @@ class ColdITG2DFourier(FourierSystem):
             fields,
             self.dft_derivatives,
             self.real_dxphi_zonal,
-            self.cfl_rate
         )
+
+        self.cfl_rate[0] = 0
 
         self.plan_derivatives_c2r.fft(
             self.dft_derivatives,
