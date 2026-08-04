@@ -19,7 +19,6 @@ from .cold_itg_2d_fourier_diagnostics import FreeEnergyDiag, HeatfluxDiag
 class ColdITG2DFourier(FourierSystem):
     """Fourier solver for the 2D system."""
     number_of_fields = 2
-    number_of_fields_explicit = 2
     number_of_dft_derivatives = 5
     number_of_dft_bits = 5
 
@@ -155,21 +154,21 @@ class ColdITG2DFourier(FourierSystem):
     def setup_cuda_definitions(self) -> None:
         # System-specific constants for the kernels
         self.module_options.define_float("CHI",
-                                            self.input["parameters.chi"])
+                                         self.input["parameters.chi"])
         self.module_options.define_float("A_TIMES_CHI",
-                                            self.input["parameters.a"]
-                                            * self.input["parameters.chi"])
+                                         self.input["parameters.a"]
+                                         * self.input["parameters.chi"])
 
         self.module_options.define_float("B_TIMES_CHI",
-                                            self.input["parameters.b"]
-                                            * self.input["parameters.chi"])
+                                         self.input["parameters.b"]
+                                         * self.input["parameters.chi"])
 
         self.module_options.define_float("KAPPA_T",
-                                            self.input["parameters.kappaT"])
+                                         self.input["parameters.kappaT"])
         self.module_options.define_float("KAPPA_N",
-                                            self.input["parameters.kappan"])
+                                         self.input["parameters.kappan"])
         self.module_options.define_float("KAPPA_B",
-                                            self.input["parameters.kappaB"])
+                                         self.input["parameters.kappaB"])
 
         # Call this to compile the module
         super().setup_cuda_definitions()
@@ -188,8 +187,9 @@ class ColdITG2DFourier(FourierSystem):
             fields,
             self.dft_derivatives,
             self.real_dxphi_zonal,
-            self.cfl_rate
         )
+
+        self.cfl_rate[0] = 0
 
         self.plan_derivatives_c2r.fft(
             self.dft_derivatives,
@@ -213,8 +213,8 @@ class ColdITG2DFourier(FourierSystem):
 
         # NB: real_derivatives and real_bits are the same array
         self.plan_bits_r2c.fft(
-            self.real_bits, 
-            self.dft_bits, 
+            self.real_bits,
+            self.dft_bits,
             cufft.CUFFT_FORWARD
         )
 
@@ -226,15 +226,15 @@ class ColdITG2DFourier(FourierSystem):
         # Initialise linear matrix
         linear_matrix = np.zeros(
             (
-            self.number_of_fields, 
-            self.number_of_fields, 
-            *self.half_unpadded_tuple
+                self.number_of_fields,
+                self.number_of_fields,
+                *self.half_unpadded_tuple
             ),
             dtype=self.complex,
         )
 
         # Get wavenumbers
-        kx, ky, kz = self.get_broadcast_wavenumbers()
+        kx, ky, _ = self.get_broadcast_wavenumbers()
         kperp2 = kx**2 + ky**2
 
         # Get parameters
