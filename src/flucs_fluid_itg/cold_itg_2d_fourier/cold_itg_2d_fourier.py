@@ -234,7 +234,7 @@ class ColdITG2DFourier(FourierSystem):
         )
 
         # Get wavenumbers
-        kx, ky, _ = self.get_broadcast_wavenumbers()
+        _, kx, ky = self.get_broadcast_wavenumbers()
         kperp2 = kx**2 + ky**2
 
         # Get parameters
