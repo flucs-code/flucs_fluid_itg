@@ -7,7 +7,6 @@ from typing import ClassVar
 
 import cupy as cp
 import numpy as np
-from cupy.cuda import cufft
 from flucs.input import InvalidFlucsInputFileError
 from flucs.diagnostic import FlucsDiagnostic
 from flucs.solvers.fourier.fourier_system import FourierSystem
@@ -26,7 +25,6 @@ class ColdITG2DFourier(FourierSystem):
     phi: list
     T: list
 
-    real_dxphi: cp.ndarray
     real_dxphi_zonal: cp.ndarray
 
     # CUDA kernels
@@ -48,7 +46,7 @@ class ColdITG2DFourier(FourierSystem):
 
         # Setup kernel parameters (grid, block, shared memory)
         zonal_average_cuda_block = (256,)
-        zonal_average_cuda_grid = (self.padded_nx,)
+        zonal_average_cuda_grid = (self.nx,)
         zonal_average_shared_mem = 32 * self.float().nbytes
 
         nonlinear_bits_shared_mem = (
@@ -59,14 +57,14 @@ class ColdITG2DFourier(FourierSystem):
         self.find_derivatives_kernel = KernelWrapper(
             system=self,
             cuda_kernel_name="find_derivatives",
-            grid=(self.half_padded_cuda_grid_size,),
+            grid=(self.half_cuda_grid_size,),
             block=(self.cuda_block_size,),
         )
 
         self.find_nonlinear_bits_kernel = KernelWrapper(
             system=self,
             cuda_kernel_name="find_nonlinear_bits",
-            grid=(self.full_padded_cuda_grid_size,),
+            grid=(self.full_cuda_grid_size,),
             block=(self.cuda_block_size,),
             shared_mem=nonlinear_bits_shared_mem,
         )
@@ -78,6 +76,54 @@ class ColdITG2DFourier(FourierSystem):
             block=zonal_average_cuda_block,
             shared_mem=zonal_average_shared_mem,
         )
+
+        # Define functions from kernels
+        def find_derivatives_function(
+            current_dt,
+            current_time,
+            current_step: int,
+            fields: cp.ndarray,
+            dft_derivatives: cp.ndarray,
+        ) -> None:
+            self.find_derivatives_kernel(
+                fields,
+                dft_derivatives,
+            )
+
+        def find_nonlinear_bits_function(
+            current_dt,
+            current_time,
+            current_step: int,
+            real_derivatives: cp.ndarray,
+            real_bits: cp.ndarray,
+            calculate_cfl: bool,
+        ) -> None:
+            # Get dxphi in whichever array (shifted or unshifted) is
+            # currently being evaluated.
+            real_dxphi = real_derivatives[0]
+
+            self.zonal_average_kernel(
+                self.ny,
+                False,
+                real_dxphi,
+                self.real_dxphi_zonal,
+            )
+
+            self.find_nonlinear_bits_kernel(
+                real_derivatives,
+                real_bits,
+                self.real_dxphi_zonal,
+                calculate_cfl,
+                self.cfl_rate,
+            )
+
+        if not self.input["setup.linear"]:
+            self.dft_derivatives_operation = (
+                self.create_dft_derivatives_operation(
+                    find_derivatives_function=find_derivatives_function,
+                    find_real_bits_function=find_nonlinear_bits_function,
+                )
+            )
 
     def _allocate_memory(self) -> None:
         """Allocates runtime arrays."""
@@ -124,13 +170,7 @@ class ColdITG2DFourier(FourierSystem):
             # The arrays for the above are handled by FourierSystem
             # Here follow all the ITG-specific ones
 
-            # The first derivative in real_derivatives is dx phi.
-            # We need this for computing the zonal flow.
-            self.real_dxphi = cp.ndarray((self.padded_nx, self.padded_ny),
-                                         dtype=self.float,
-                                         memptr=self.real_derivatives.data)
-
-            self.real_dxphi_zonal = cp.zeros((self.padded_nx,),
+            self.real_dxphi_zonal = cp.zeros((self.nx,),
                                              dtype=self.float)
 
     def _interpret_input(self):
@@ -140,11 +180,8 @@ class ColdITG2DFourier(FourierSystem):
         # (resolution checks, etc)
         super()._interpret_input()
 
-        # Anything custom goes here
-
-        if self.nz != 1 or self.padded_nz != 1:
-            raise ValueError("Both nz and padded_nz should be "
-                             "set to 1 for the 2D system!")
+        if self.nz != 1:
+            raise ValueError("nz must be set to 1 for the 2D system!")
 
         if self.input["hyperdissipation.kz"] > 0.0:
             raise InvalidFlucsInputFileError(
@@ -177,45 +214,22 @@ class ColdITG2DFourier(FourierSystem):
         # Do anything model-specific here, then call the parent's method
         super().begin_time_step()
 
-    def compute_nonlinear_terms(self, fields: cp.ndarray) -> None:
-        """
-        Computes the nonlinear terms for the supplied fields. Here, we also
-        determine the nonlinear CFL coefficient.
-
-        """
-        self.find_derivatives_kernel(
+    def compute_nonlinear_terms(
+        self,
+        current_dt,
+        current_time,
+        current_step,
+        fields: cp.ndarray,
+        calculate_cfl,
+    ) -> None:
+        """Computes the dealiased nonlinear terms for the supplied fields."""
+        self.dft_derivatives_operation(
+            current_dt,
+            current_time,
+            current_step,
             fields,
-            self.dft_derivatives,
-            self.real_dxphi_zonal,
-        )
-
-        self.cfl_rate[0] = 0
-
-        self.plan_derivatives_c2r.fft(
-            self.dft_derivatives,
-            self.real_derivatives,
-            cufft.CUFFT_INVERSE
-        )
-
-        self.zonal_average_kernel(
-            self.padded_ny,
-            False,
-            self.real_dxphi,
-            self.real_dxphi_zonal
-        )
-
-        # NB: real_derivatives and real_bits are the same array
-        self.find_nonlinear_bits_kernel(
-            self.real_derivatives,
-            self.real_dxphi_zonal,
-            self.cfl_rate,
-        )
-
-        # NB: real_derivatives and real_bits are the same array
-        self.plan_bits_r2c.fft(
-            self.real_bits,
             self.dft_bits,
-            cufft.CUFFT_FORWARD
+            calculate_cfl=calculate_cfl,
         )
 
     def finish_time_step(self) -> None:
@@ -228,7 +242,7 @@ class ColdITG2DFourier(FourierSystem):
             (
                 self.number_of_fields,
                 self.number_of_fields,
-                *self.half_unpadded_tuple
+                *self.half_tuple
             ),
             dtype=self.complex,
         )

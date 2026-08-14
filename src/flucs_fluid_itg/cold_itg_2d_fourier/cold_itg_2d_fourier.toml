@@ -8,6 +8,4 @@ kappan = 0.0
 alpha = 0.5
 
 [dimensions]
-# 2D means no z stuff
 nz = 1
-padded_nz = 1
