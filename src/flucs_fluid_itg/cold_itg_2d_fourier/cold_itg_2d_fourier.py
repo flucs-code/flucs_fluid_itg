@@ -192,12 +192,12 @@ class ColdITG2DFourier(FourierSystem):
         # System-specific constants for the kernels
         self.module_options.define_float("CHI",
                                          self.input["parameters.chi"])
-        self.module_options.define_float("A_TIMES_CHI",
-                                         self.input["parameters.a"]
+        self.module_options.define_float("COEFFA_TIMES_CHI",
+                                         self.input["parameters.coeffa"]
                                          * self.input["parameters.chi"])
 
-        self.module_options.define_float("B_TIMES_CHI",
-                                         self.input["parameters.b"]
+        self.module_options.define_float("COEFFB_TIMES_CHI",
+                                         self.input["parameters.coeffb"]
                                          * self.input["parameters.chi"])
 
         self.module_options.define_float("KAPPA_T",

@@ -27,12 +27,12 @@ __device__ void get_linear_matrix(
 
     // Generate the linear matrix
     matrix[0][0] = FLUCS_COMPLEX(
-        A_TIMES_CHI*kperp2*kperp2,
+        COEFFA_TIMES_CHI*kperp2*kperp2,
         -ky*(KAPPA_B - KAPPA_N) - KAPPA_T*kperp2*ky
     ) * eta_inv;
 
     matrix[0][1] = FLUCS_COMPLEX(
-        -B_TIMES_CHI*kperp2*kperp2, 
+        -COEFFB_TIMES_CHI*kperp2*kperp2, 
         -ky*KAPPA_B
     ) * eta_inv;
 
