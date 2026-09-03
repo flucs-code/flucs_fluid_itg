@@ -101,7 +101,6 @@ class ColdITG2DFourier(FourierSystem):
             # Get dxphi in whichever array (shifted or unshifted) is
             # currently being evaluated.
             real_derivatives = memory_dict["first_intermediates_real"]
-            real_dxphi_zonal = memory_dict["real_dxphi_zonal"]
             real_bits = memory_dict["second_intermediates_real"]
 
             real_dxphi = real_derivatives[0]
@@ -110,32 +109,25 @@ class ColdITG2DFourier(FourierSystem):
                 self.ny,
                 False,
                 real_dxphi,
-                real_dxphi_zonal,
+                self.real_dxphi_zonal,
             )
 
             self.find_nonlinear_bits_kernel(
                 real_derivatives,
                 real_bits,
-                real_dxphi_zonal,
+                self.real_dxphi_zonal,
                 calculate_cfl,
                 self.cfl_rate,
             )
 
         if not self.input["setup.linear"]:
-            def allocate_additional_memory():
-                real_dxphi_zonal = cp.zeros((self.nx,), dtype=self.float)
-                return {
-                    "real_dxphi_zonal": real_dxphi_zonal,
-                }
-
-
             self.dft_derivatives_operation, self.dft_bits = (
                 self.create_dealiased_operation(
                     n_in=self.number_of_dft_derivatives,
                     n_out=self.number_of_dft_bits,
                     create_first_intermediates=find_derivatives_function,
                     create_second_intermediates=find_nonlinear_bits_function,
-                    allocate_additional_memory=allocate_additional_memory,
+                    allocate_additional_memory=None,
                     combine_first_and_second_intermediates=True,
                 )
             )
