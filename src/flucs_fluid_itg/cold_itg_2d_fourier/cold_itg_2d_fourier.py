@@ -83,45 +83,60 @@ class ColdITG2DFourier(FourierSystem):
             current_time,
             current_step: int,
             fields: cp.ndarray,
-            dft_derivatives: cp.ndarray,
+            memory_dict: dict
         ) -> None:
+            fourier_derivatives = memory_dict["first_intermediates_fourier"]
             self.find_derivatives_kernel(
                 fields,
-                dft_derivatives,
+                fourier_derivatives,
             )
 
         def find_nonlinear_bits_function(
             current_dt,
             current_time,
             current_step: int,
-            real_derivatives: cp.ndarray,
-            real_bits: cp.ndarray,
             calculate_cfl: bool,
+            memory_dict: dict
         ) -> None:
             # Get dxphi in whichever array (shifted or unshifted) is
             # currently being evaluated.
+            real_derivatives = memory_dict["first_intermediates_real"]
+            real_dxphi_zonal = memory_dict["real_dxphi_zonal"]
+            real_bits = memory_dict["second_intermediates_real"]
+
             real_dxphi = real_derivatives[0]
 
             self.zonal_average_kernel(
                 self.ny,
                 False,
                 real_dxphi,
-                self.real_dxphi_zonal,
+                real_dxphi_zonal,
             )
 
             self.find_nonlinear_bits_kernel(
                 real_derivatives,
                 real_bits,
-                self.real_dxphi_zonal,
+                real_dxphi_zonal,
                 calculate_cfl,
                 self.cfl_rate,
             )
 
         if not self.input["setup.linear"]:
-            self.dft_derivatives_operation = (
-                self.create_dft_derivatives_operation(
-                    find_derivatives_function=find_derivatives_function,
-                    find_real_bits_function=find_nonlinear_bits_function,
+            def allocate_additional_memory():
+                real_dxphi_zonal = cp.zeros((self.nx,), dtype=self.float)
+                return {
+                    "real_dxphi_zonal": real_dxphi_zonal,
+                }
+
+
+            self.dft_derivatives_operation, self.dft_bits = (
+                self.create_dealiased_operation(
+                    n_in=self.number_of_dft_derivatives,
+                    n_out=self.number_of_dft_bits,
+                    create_first_intermediates=find_derivatives_function,
+                    create_second_intermediates=find_nonlinear_bits_function,
+                    allocate_additional_memory=allocate_additional_memory,
+                    combine_first_and_second_intermediates=True,
                 )
             )
 
@@ -130,8 +145,7 @@ class ColdITG2DFourier(FourierSystem):
 
         # First, call FourierSystem's method which allocates
         # self.fields among other things.
-        super()._allocate_memory(allocate_derivatives_and_bits=True,
-                                 combine_derivatives_and_bits=True)
+        super()._allocate_memory()
 
         # GPU arrays
 
@@ -228,7 +242,6 @@ class ColdITG2DFourier(FourierSystem):
             current_time,
             current_step,
             fields,
-            self.dft_bits,
             calculate_cfl=calculate_cfl,
         )
 
