@@ -257,8 +257,8 @@ class ColdITG2DFourier(FourierSystem):
         kappan = self.input["parameters.kappan"]
 
         chi = self.input["parameters.chi"]
-        a = self.input["parameters.a"]
-        b = self.input["parameters.b"]
+        a = self.input["parameters.coeffa"]
+        b = self.input["parameters.coeffb"]
 
         # Define arrays for zonal response
         eta = 1 + kperp2
