@@ -20,6 +20,7 @@ class ColdITG2DFourier(FourierSystem):
     number_of_fields = 2
     number_of_dft_derivatives = 5
     number_of_dft_bits = 5
+    keep_previous_stage_alive = False
 
     # Direct pointers to the phi and T arrays
     phi: list
