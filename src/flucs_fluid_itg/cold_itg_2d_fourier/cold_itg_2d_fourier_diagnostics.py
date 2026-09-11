@@ -1,8 +1,187 @@
-import cupy as cp
 from collections.abc import Callable
+
+import cupy as cp
 import numpy as np
 from flucs.diagnostic import FlucsDiagnostic, FlucsDiagnosticVariable
 from flucs.solvers.fourier.fourier_system_reductions import FourierReductions
+from flucs.utilities.cupy import KernelWrapper
+
+
+def _profile_variable(name, x):
+    return FlucsDiagnosticVariable(
+        name=name,
+        shape=("x",),
+        dimensions={"x": x},
+        is_complex=False,
+    )
+
+
+class ZonalProfilesDiag(FlucsDiagnostic):
+    """Zonal potential and temperature profiles on the padded x grid."""
+
+    name = "zonal_profiles"
+
+    def init_vars(self):
+        x = (
+            np.arange(self.system.nx, dtype=self.system.float)
+            * self.system.float(self.system.input["dimensions.Lx"])
+            / self.system.float(self.system.nx)
+        )
+        self.add_var(_profile_variable("phi", x))
+        self.add_var(_profile_variable("T", x))
+        self.add_var(
+            FlucsDiagnosticVariable(
+                name="gamma_max",
+                shape=(),
+                dimensions={},
+                is_complex=False,
+            )
+        )
+
+        self.zonal_fourier = cp.zeros(
+            (2, self.system.nx), dtype=self.system.complex
+        )
+        self.zonal_fourier_host = np.empty(
+            (2, self.system.nx), dtype=self.system.complex
+        )
+
+    def register_kernels(self):
+        grid = (
+            (self.system.nx + self.system.cuda_block_size - 1)
+            // self.system.cuda_block_size,
+        )
+        self.gather_zonal_fields_kernel = KernelWrapper(
+            system=self.system,
+            cuda_kernel_name="gather_zonal_fields",
+            grid=grid,
+            block=(self.system.cuda_block_size,),
+        )
+
+    def ready(self):
+        eigvals = self.system.compute_linear_eigensystem()["eigvals"]
+        solved = self.system.get_solved_grid_mask().astype(bool)
+        self.gamma_max = self.system.float(
+            np.max(eigvals[:, solved].imag)
+        )
+
+    def execute(self):
+        self.gather_zonal_fields_kernel(
+            self.system.get_fields(), self.zonal_fourier
+        )
+        self.zonal_fourier.get(out=self.zonal_fourier_host)
+        profiles = np.fft.ifft(
+            self.zonal_fourier_host, axis=-1, norm="forward"
+        ).real.astype(self.system.float, copy=False)
+
+        self.save_data("phi", profiles[0])
+        self.save_data("T", profiles[1])
+        self.save_data("gamma_max", self.gamma_max)
+
+
+class MomentumFluxDiag(FlucsDiagnostic):
+    """Zonal turbulent and collisional momentum-flux profiles."""
+
+    name = "momentum_flux"
+
+    def init_vars(self):
+        x = (
+            np.arange(self.system.nx, dtype=self.system.float)
+            * self.system.float(self.system.input["dimensions.Lx"])
+            / self.system.float(self.system.nx)
+        )
+        for name in ("Pi_phi", "Pi_T", "Pi_t", "Pi_d"):
+            self.add_var(_profile_variable(name, x))
+
+        self.momentum_flux_fourier = cp.zeros(
+            (4, self.system.nx), dtype=self.system.complex
+        )
+        self.momentum_flux_fourier_host = np.empty(
+            (4, self.system.nx), dtype=self.system.complex
+        )
+
+    def register_kernels(self):
+        self.find_derivatives_kernel = KernelWrapper(
+            system=self.system,
+            cuda_kernel_name="find_momentum_flux_derivatives",
+            grid=(self.system.half_cuda_grid_size,),
+            block=(self.system.cuda_block_size,),
+        )
+        self.find_products_kernel = KernelWrapper(
+            system=self.system,
+            cuda_kernel_name="find_momentum_flux_products",
+            grid=(self.system.full_cuda_grid_size,),
+            block=(self.system.cuda_block_size,),
+        )
+        zonal_grid = (
+            (self.system.nx + self.system.cuda_block_size - 1)
+            // self.system.cuda_block_size,
+        )
+        self.gather_kernel = KernelWrapper(
+            system=self.system,
+            cuda_kernel_name="gather_momentum_flux",
+            grid=zonal_grid,
+            block=(self.system.cuda_block_size,),
+        )
+
+        def create_first_intermediates(
+            current_dt,
+            current_time,
+            current_step,
+            fields,
+            memory_dict,
+        ):
+            self.find_derivatives_kernel(
+                fields, memory_dict["first_intermediates_fourier"]
+            )
+
+        def create_second_intermediates(
+            current_dt,
+            current_time,
+            current_step,
+            calculate_cfl,
+            memory_dict,
+        ):
+            self.find_products_kernel(
+                memory_dict["first_intermediates_real"],
+                memory_dict["second_intermediates_real"],
+            )
+
+        self.operation, self.products_fourier = (
+            self.system.create_dealiased_operation(
+                n_in=3,
+                n_out=2,
+                create_first_intermediates=create_first_intermediates,
+                create_second_intermediates=create_second_intermediates,
+                allocate_additional_memory=None,
+                combine_first_and_second_intermediates=True,
+            )
+        )
+
+    def ready(self):
+        pass
+
+    def execute(self):
+        fields = self.system.get_fields()
+        self.operation(
+            self.system.current_dt,
+            self.system.current_time,
+            self.system.current_step,
+            fields,
+            calculate_cfl=False,
+        )
+        self.gather_kernel(
+            fields,
+            self.products_fourier,
+            self.momentum_flux_fourier,
+        )
+        self.momentum_flux_fourier.get(out=self.momentum_flux_fourier_host)
+        profiles = np.fft.ifft(
+            self.momentum_flux_fourier_host, axis=-1, norm="forward"
+        ).real.astype(self.system.float, copy=False)
+
+        for index, name in enumerate(("Pi_phi", "Pi_T", "Pi_t", "Pi_d")):
+            self.save_data(name, profiles[index])
+
 
 class HeatfluxDiag(FlucsDiagnostic):
     name = "heatflux"

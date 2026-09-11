@@ -7,12 +7,17 @@ from typing import ClassVar
 
 import cupy as cp
 import numpy as np
-from flucs.input import InvalidFlucsInputFileError
 from flucs.diagnostic import FlucsDiagnostic
+from flucs.input import InvalidFlucsInputFileError
 from flucs.solvers.fourier.fourier_system import FourierSystem
 from flucs.utilities.cupy import KernelWrapper
 
-from .cold_itg_2d_fourier_diagnostics import FreeEnergyDiag, HeatfluxDiag
+from .cold_itg_2d_fourier_diagnostics import (
+    FreeEnergyDiag,
+    HeatfluxDiag,
+    MomentumFluxDiag,
+    ZonalProfilesDiag,
+)
 
 
 class ColdITG2DFourier(FourierSystem):
@@ -35,7 +40,10 @@ class ColdITG2DFourier(FourierSystem):
 
     # Supported diagnostics
     diags: ClassVar[set[type[FlucsDiagnostic]]] = {
-        HeatfluxDiag, FreeEnergyDiag
+        HeatfluxDiag,
+        FreeEnergyDiag,
+        ZonalProfilesDiag,
+        MomentumFluxDiag,
     }
 
     def ready(self):
@@ -132,6 +140,17 @@ class ColdITG2DFourier(FourierSystem):
                     combine_first_and_second_intermediates=True,
                 )
             )
+
+        # Diagnostics are instantiated while outputs are set up, before the
+        # CUDA module is compiled. Give selected diagnostics an opportunity to
+        # register kernels and build dealiased operations here, after the
+        # standard CUDA launch sizes have been configured.
+        for output in self.output_heap or []:
+            for diagnostic in output.diagnostics:
+                if isinstance(
+                    diagnostic, (ZonalProfilesDiag, MomentumFluxDiag)
+                ):
+                    diagnostic.register_kernels()
 
     def _allocate_memory(self) -> None:
         """Allocates runtime arrays."""

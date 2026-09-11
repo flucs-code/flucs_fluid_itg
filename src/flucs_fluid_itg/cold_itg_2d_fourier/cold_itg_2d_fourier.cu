@@ -132,6 +132,96 @@ __global__ void find_nonlinear_bits(
     real_bits_global[4][index] = dyphi * p;
 }
 
+__global__ void gather_zonal_fields(
+    const FLUCS_COMPLEX fields_global[NUMBER_OF_FIELDS][HALFSIZE],
+    FLUCS_COMPLEX zonal_fields_global[2][NX]
+) {
+    const size_t ikx = blockDim.x * blockIdx.x + threadIdx.x;
+    if (!(ikx < NX))
+        return;
+
+    const size_t index = ikx * HALF_NY;
+    zonal_fields_global[0][ikx] = fields_global[0][index];
+    zonal_fields_global[1][ikx] = fields_global[1][index];
+}
+
+__global__ void find_momentum_flux_derivatives(
+    const FLUCS_COMPLEX fields_global[NUMBER_OF_FIELDS][HALFSIZE],
+    FLUCS_COMPLEX derivatives_global[3][HALFSIZE]
+) {
+    const size_t index = blockDim.x * blockIdx.x + threadIdx.x;
+    if (!(index < HALFSIZE))
+        return;
+
+    if (is_mode_padded(index)) {
+        derivatives_global[0][index] = 0;
+        derivatives_global[1][index] = 0;
+        derivatives_global[2][index] = 0;
+        return;
+    }
+
+    const indices3d_t indices = get_indices3d<1, NX, HALF_NY>(index);
+    const FLUCS_COMPLEX dx = dx_from_ikx(indices.ikx);
+    const FLUCS_COMPLEX dy = dy_from_iky(indices.iky);
+    const FLUCS_COMPLEX phi = fields_global[0][index];
+    const FLUCS_COMPLEX temperature = fields_global[1][index];
+
+    derivatives_global[0][index] = dx * phi;
+    derivatives_global[1][index] = dy * phi;
+    derivatives_global[2][index] = dy * temperature;
+}
+
+__global__ void find_momentum_flux_products(
+    const FLUCS_FLOAT derivatives_global[3][FULLSIZE],
+    FLUCS_FLOAT products_global[2][FULLSIZE]
+) {
+    const size_t index = blockDim.x * blockIdx.x + threadIdx.x;
+    if (!(index < FULLSIZE))
+        return;
+
+    // The input and output arrays may alias. Read every input first.
+    const FLUCS_FLOAT dxphi = derivatives_global[0][index];
+    const FLUCS_FLOAT dyphi = derivatives_global[1][index];
+    const FLUCS_FLOAT dytemperature = derivatives_global[2][index];
+
+    products_global[0][index] = -dxphi * dyphi;
+    products_global[1][index] = -dxphi * dytemperature;
+}
+
+__global__ void gather_momentum_flux(
+    const FLUCS_COMPLEX fields_global[NUMBER_OF_FIELDS][HALFSIZE],
+    const FLUCS_COMPLEX products_global[2][HALFSIZE],
+    FLUCS_COMPLEX momentum_flux_global[4][NX]
+) {
+    const size_t ikx = blockDim.x * blockIdx.x + threadIdx.x;
+    if (!(ikx < NX))
+        return;
+
+    const size_t index = ikx * HALF_NY;
+    if (is_mode_padded(index)) {
+        momentum_flux_global[0][ikx] = 0;
+        momentum_flux_global[1][ikx] = 0;
+        momentum_flux_global[2][ikx] = 0;
+        momentum_flux_global[3][ikx] = 0;
+        return;
+    }
+
+    const FLUCS_COMPLEX pi_phi =
+        DFT_FULLSIZE_FACTOR * products_global[0][index];
+    const FLUCS_COMPLEX pi_temperature =
+        DFT_FULLSIZE_FACTOR * products_global[1][index];
+    const FLUCS_FLOAT kx = kx_from_ikx(ikx);
+    const FLUCS_COMPLEX pi_dissipative = kx * kx * (
+        COEFFA_TIMES_CHI * fields_global[0][index]
+        - COEFFB_TIMES_CHI * fields_global[1][index]
+    );
+
+    momentum_flux_global[0][ikx] = pi_phi;
+    momentum_flux_global[1][ikx] = pi_temperature;
+    momentum_flux_global[2][ikx] = pi_phi + pi_temperature;
+    momentum_flux_global[3][ikx] = pi_dissipative;
+}
+
 __device__ void add_nonlinear_terms(
     const size_t index,
     const FLUCS_FLOAT dt,
