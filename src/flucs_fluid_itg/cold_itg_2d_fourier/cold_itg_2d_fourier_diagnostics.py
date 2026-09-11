@@ -89,14 +89,21 @@ class MomentumFluxDiag(FlucsDiagnostic):
             * self.system.float(self.system.input["dimensions.Lx"])
             / self.system.float(self.system.nx)
         )
-        for name in ("Pi_phi", "Pi_T", "Pi_t", "Pi_d"):
+        for name in (
+            "Pi_phi",
+            "Pi_T",
+            "Pi_t",
+            "Pi_d",
+            "Pi_AE",
+            "Pi_total",
+        ):
             self.add_var(_profile_variable(name, x))
 
         self.momentum_flux_fourier = cp.zeros(
-            (4, self.system.nx), dtype=self.system.complex
+            (6, self.system.nx), dtype=self.system.complex
         )
         self.momentum_flux_fourier_host = np.empty(
-            (4, self.system.nx), dtype=self.system.complex
+            (6, self.system.nx), dtype=self.system.complex
         )
 
     def register_kernels(self):
@@ -173,13 +180,16 @@ class MomentumFluxDiag(FlucsDiagnostic):
             fields,
             self.products_fourier,
             self.momentum_flux_fourier,
+            self.system.float(self.system.current_time),
         )
         self.momentum_flux_fourier.get(out=self.momentum_flux_fourier_host)
         profiles = np.fft.ifft(
             self.momentum_flux_fourier_host, axis=-1, norm="forward"
         ).real.astype(self.system.float, copy=False)
 
-        for index, name in enumerate(("Pi_phi", "Pi_T", "Pi_t", "Pi_d")):
+        for index, name in enumerate(
+            ("Pi_phi", "Pi_T", "Pi_t", "Pi_d", "Pi_AE", "Pi_total")
+        ):
             self.save_data(name, profiles[index])
 
 

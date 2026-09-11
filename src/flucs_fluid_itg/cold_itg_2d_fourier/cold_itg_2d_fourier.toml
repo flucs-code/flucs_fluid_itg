@@ -7,6 +7,14 @@ kappaB = 1.0
 kappan = 0.0
 alpha = 0.5
 
+[forcing]
+method = ""
+momentum_flux_amplitude = 0.0
+radial_mode_number = 1
+radial_phase = 0.0
+growth_rate = 1.0
+midpoint_time = 0.0
+
 [dimensions]
 Lz = 1
 nz = 1

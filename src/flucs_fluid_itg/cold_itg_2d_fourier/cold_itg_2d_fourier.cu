@@ -188,10 +188,57 @@ __global__ void find_momentum_flux_products(
     products_global[1][index] = -dxphi * dytemperature;
 }
 
+__device__ FLUCS_FLOAT ae_envelope(const FLUCS_FLOAT current_time) {
+#ifdef FORCING_METHOD_ALFVEN_EIGENMODE
+    const FLUCS_FLOAT exponent = (FLUCS_FLOAT)2.0 * FORCING_AE_GROWTH_RATE
+        * (current_time - FORCING_AE_MIDPOINT_TIME);
+#ifdef DOUBLE_PRECISION
+    if (exponent >= (FLUCS_FLOAT)0.0)
+        return (FLUCS_FLOAT)1.0 / ((FLUCS_FLOAT)1.0 + exp(-exponent));
+    const FLUCS_FLOAT exp_exponent = exp(exponent);
+#else
+    if (exponent >= (FLUCS_FLOAT)0.0)
+        return (FLUCS_FLOAT)1.0 / ((FLUCS_FLOAT)1.0 + expf(-exponent));
+    const FLUCS_FLOAT exp_exponent = expf(exponent);
+#endif
+    return exp_exponent / ((FLUCS_FLOAT)1.0 + exp_exponent);
+#else
+    (void)current_time;
+    return (FLUCS_FLOAT)0.0;
+#endif
+}
+
+__device__ FLUCS_COMPLEX get_ae_zonal_momentum_flux(
+    const size_t ikx, const FLUCS_FLOAT current_time
+) {
+#ifdef FORCING_METHOD_ALFVEN_EIGENMODE
+    const FLUCS_FLOAT envelope = ae_envelope(current_time);
+    const FLUCS_COMPLEX phase = FLUCS_COMPLEX(
+        flucs_cos(FORCING_AE_PHASE), flucs_sin(FORCING_AE_PHASE)
+    );
+    const FLUCS_COMPLEX phase_conjugate = FLUCS_COMPLEX(
+        flucs_cos(FORCING_AE_PHASE), -flucs_sin(FORCING_AE_PHASE)
+    );
+    const FLUCS_COMPLEX coefficient =
+        (FLUCS_FLOAT)0.5 * FORCING_AE_AMPLITUDE * envelope * phase;
+    if (ikx == (size_t)FORCING_AE_MODE)
+        return FLUCS_COMPLEX(0.0, 1.0) * coefficient;
+    if (ikx == NX - (size_t)FORCING_AE_MODE)
+        return -FLUCS_COMPLEX(0.0, 1.0)
+            * ((FLUCS_FLOAT)0.5 * FORCING_AE_AMPLITUDE * envelope
+                * phase_conjugate);
+#else
+    (void)ikx;
+    (void)current_time;
+#endif
+    return FLUCS_COMPLEX(0.0, 0.0);
+}
+
 __global__ void gather_momentum_flux(
     const FLUCS_COMPLEX fields_global[NUMBER_OF_FIELDS][HALFSIZE],
     const FLUCS_COMPLEX products_global[2][HALFSIZE],
-    FLUCS_COMPLEX momentum_flux_global[4][NX]
+    FLUCS_COMPLEX momentum_flux_global[6][NX],
+    const FLUCS_FLOAT current_time
 ) {
     const size_t ikx = blockDim.x * blockIdx.x + threadIdx.x;
     if (!(ikx < NX))
@@ -199,10 +246,8 @@ __global__ void gather_momentum_flux(
 
     const size_t index = ikx * HALF_NY;
     if (is_mode_padded(index)) {
-        momentum_flux_global[0][ikx] = 0;
-        momentum_flux_global[1][ikx] = 0;
-        momentum_flux_global[2][ikx] = 0;
-        momentum_flux_global[3][ikx] = 0;
+        for (int component = 0; component < 6; ++component)
+            momentum_flux_global[component][ikx] = 0;
         return;
     }
 
@@ -215,11 +260,17 @@ __global__ void gather_momentum_flux(
         COEFFA_TIMES_CHI * fields_global[0][index]
         - COEFFB_TIMES_CHI * fields_global[1][index]
     );
+    const FLUCS_COMPLEX pi_alfven = get_ae_zonal_momentum_flux(
+        ikx, current_time
+    );
 
     momentum_flux_global[0][ikx] = pi_phi;
     momentum_flux_global[1][ikx] = pi_temperature;
     momentum_flux_global[2][ikx] = pi_phi + pi_temperature;
     momentum_flux_global[3][ikx] = pi_dissipative;
+    momentum_flux_global[4][ikx] = pi_alfven;
+    momentum_flux_global[5][ikx] =
+        pi_phi + pi_temperature + pi_dissipative + pi_alfven;
 }
 
 __device__ void add_nonlinear_terms(
@@ -266,6 +317,26 @@ __device__ void add_nonlinear_terms(
         dy * dxphi_p - dx * dyphi_p
     );
 }
+
+#ifdef FORCING_METHOD_ALFVEN_EIGENMODE
+__device__ void add_forcing_explicit(
+    const size_t index,
+    const FLUCS_FLOAT dt,
+    const FLUCS_FLOAT current_time,
+    const long long current_step,
+    const FLUCS_COMPLEX previous_fields_forcing[NUMBER_OF_FIELDS],
+    FLUCS_COMPLEX explicit_terms[NUMBER_OF_FIELDS]
+) {
+    (void)dt;
+    (void)current_step;
+    (void)previous_fields_forcing;
+    const indices3d_t indices = get_indices3d<1, NX, HALF_NY>(index);
+    if (indices.iky == 0)
+        explicit_terms[0] += get_ae_zonal_momentum_flux(
+            indices.ikx, current_time
+        );
+}
+#endif
 
 struct FreeEnergy_Functor {
     const FLUCS_COMPLEX* __restrict__ fields_global;

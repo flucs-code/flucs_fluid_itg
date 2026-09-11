@@ -201,6 +201,10 @@ The plugin provides:
   `momentum_flux/Pi_T = -overline{dx(phi) dy(T)}`.
 - `momentum_flux/Pi_t = Pi_phi + Pi_T` and
   `momentum_flux/Pi_d = -chi dx^2(coeffa phi - coeffb T)`.
+- When `[forcing].method = "alfven_eigenmode"`, `momentum_flux/Pi_AE` records
+  a prescribed zonal momentum flux from a single radial Alfvén-mode pair. The
+  forcing is applied explicitly to the zonal potential only, and `Pi_total` is
+  the sum of `Pi_t`, `Pi_d`, and `Pi_AE`.
 
 The heat-flux and free-energy quantities are device functor reductions over the
 rFFT half-grid. The current scalar implementation calls `.get().item()` after
@@ -215,9 +219,15 @@ it transforms `dx(phi)`, `dy(phi)`, and `dy(T)`, forms both products in one
 alias-safe CUDA kernel, and gathers only retained `ky=0` output modes. Its
 unnormalized nonlinear R2C output receives `DFT_FULLSIZE_FACTOR` during the
 gather. `Pi_d` is formed directly in Fourier space with
-`COEFFA_TIMES_CHI` and `COEFFB_TIMES_CHI`. All four momentum-flux lines are
+`COEFFA_TIMES_CHI` and `COEFFB_TIMES_CHI`. All six momentum-flux lines are
 transferred together. Keep these buffers and FFT plans persistent; neither
 diagnostic should allocate CuPy arrays in `execute()`.
+
+The optional Alfvén-eigenmode forcing is configured with
+`forcing.momentum_flux_amplitude`, `forcing.radial_mode_number`,
+`forcing.radial_phase`, `forcing.growth_rate`, and `forcing.midpoint_time`.
+It is a one-way qualitative model of eigenmode self-interaction, not a coupled
+Alfvén-envelope evolution.
 
 Enable both profile diagnostics in a NetCDF output such as:
 
@@ -295,7 +305,7 @@ shapes, callback indexing, and often timestepper interfaces together. Any
 change to core APIs may require a companion change in the `flucs` checkout;
 do not add a local workaround until inspecting the core implementation.
 
-There is currently no repository test suite or bundled run input. At minimum:
+There is currently no bundled run input. At minimum:
 
 1. Run `python -m compileall -q src/flucs_fluid_itg`.
 2. Run Ruff on touched Python files. The core repo uses an 80-column Ruff
@@ -308,7 +318,7 @@ There is currently no repository test suite or bundled run input. At minimum:
    validate the numerical path.
 4. For diagnostic changes, inspect the resulting netCDF group/variable shapes,
    values, restart boundaries, and both single- and double-precision behavior.
-   For postprocessing, test one directory, multiple directories, selected
+   For postprocessing, exercise one directory, multiple directories, selected
    groups, missing variables, and headless figure saving as applicable.
 
 Do not silently alter physical normalization, signs, zero/zonal-mode handling,

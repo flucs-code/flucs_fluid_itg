@@ -10,6 +10,7 @@ import numpy as np
 from flucs.diagnostic import FlucsDiagnostic
 from flucs.input import InvalidFlucsInputFileError
 from flucs.solvers.fourier.fourier_system import FourierSystem
+from flucs.solvers.fourier.fourier_system_forcing import FourierSystemForcing
 from flucs.utilities.cupy import KernelWrapper
 
 from .cold_itg_2d_fourier_diagnostics import (
@@ -18,6 +19,7 @@ from .cold_itg_2d_fourier_diagnostics import (
     MomentumFluxDiag,
     ZonalProfilesDiag,
 )
+from .cold_itg_2d_fourier_forcing import ColdITGAlfvenEigenmodeForcing
 
 
 class ColdITG2DFourier(FourierSystem):
@@ -26,6 +28,9 @@ class ColdITG2DFourier(FourierSystem):
     number_of_dft_derivatives = 5
     number_of_dft_bits = 5
     keep_previous_stage_alive = False
+    system_forcing_methods: ClassVar[dict[str, type[FourierSystemForcing]]] = {
+        "alfven_eigenmode": ColdITGAlfvenEigenmodeForcing,
+    }
 
     # Direct pointers to the phi and T arrays
     phi: list

@@ -5,6 +5,7 @@ import pathlib as pl
 import warnings
 
 import matplotlib.pyplot as plt
+import numpy as np
 from flucs.postprocessing import FlucsPostProcessing
 from flucs_fluid_itg.cold_itg_2d_fourier.profile_postprocessing import (
     load_profile_averages,
@@ -22,11 +23,36 @@ def _warn_for_hyperdissipation(average, nc_path):
         ):
             warnings.warn(
                 f"Generic hyperdissipation is active in {nc_path}; "
-                "Pi_t + Pi_d omits its zonal-flow-balance contribution.",
+                "Pi_total omits the generic hyperdissipation contribution "
+                "to the zonal-flow balance.",
                 RuntimeWarning,
                 stacklevel=2,
             )
             return
+
+
+def _validate_ae_inputs(average):
+    """Ensure the prescribed forcing is unchanged across restart groups."""
+    reference = None
+    for index in average.contributing_groups:
+        forcing = average.input_files[index].get("forcing", {})
+        values = (
+            forcing.get("method", ""),
+            forcing.get("momentum_flux_amplitude", 0.0),
+            forcing.get("radial_mode_number", 1),
+            forcing.get("radial_phase", 0.0),
+            forcing.get("growth_rate", 1.0),
+            forcing.get("midpoint_time", 0.0),
+        )
+        if reference is None:
+            reference = values
+            continue
+        if values[0] != reference[0] or values[2] != reference[2]:
+            raise ValueError("Alfvén forcing parameters differ between groups.")
+        if not np.allclose(values[1], reference[1]) or not np.allclose(
+            values[3:], reference[3:]
+        ):
+            raise ValueError("Alfvén forcing parameters differ between groups.")
 
 
 def plot_momentum_flux(
@@ -48,6 +74,8 @@ def plot_momentum_flux(
                 "Pi_T": "momentum_flux/Pi_T",
                 "Pi_t": "momentum_flux/Pi_t",
                 "Pi_d": "momentum_flux/Pi_d",
+                "Pi_AE": "momentum_flux/Pi_AE",
+                "Pi_total": "momentum_flux/Pi_total",
                 "phi": "zonal_profiles/phi",
             },
             groups=groups,
@@ -55,6 +83,7 @@ def plot_momentum_flux(
             time_max=None if time is None else time[1],
             fraction=fraction,
         )
+        _validate_ae_inputs(average)
         _warn_for_hyperdissipation(average, nc_path)
 
         x = average.x
@@ -62,6 +91,8 @@ def plot_momentum_flux(
         pi_temperature = average.values["Pi_T"]
         pi_turbulent = average.values["Pi_t"]
         pi_dissipative = average.values["Pi_d"]
+        pi_alfven = average.values["Pi_AE"]
+        pi_total = average.values["Pi_total"]
         shear = spectral_derivative(average.values["phi"], x, order=2)
 
         fig, axes = plt.subplots(
@@ -78,18 +109,20 @@ def plot_momentum_flux(
         axes[0].plot(x, pi_phi, label=r"$\Pi_\phi$")
         axes[0].plot(x, pi_temperature, label=r"$\Pi_T$")
         axes[0].plot(x, pi_turbulent, label=r"$\Pi_t$")
+        axes[0].plot(x, pi_alfven, label=r"$\Pi_{AE}$")
         axes[0].plot(x, shear, linestyle="--", label=r"$S$")
         axes[0].set_ylabel("decomposition")
         axes[0].legend(ncols=2)
 
         axes[1].plot(x, pi_turbulent, label=r"$\Pi_t$")
         axes[1].plot(x, pi_dissipative, label=r"$\Pi_d$")
+        axes[1].plot(x, pi_alfven, label=r"$\Pi_{AE}$")
         axes[1].plot(
             x,
-            pi_turbulent + pi_dissipative,
+            pi_total,
             color="black",
             linestyle="--",
-            label=r"$\Pi_t+\Pi_d$",
+            label=r"$\Pi_{total}$",
         )
         axes[1].axhline(0.0, color="0.5", linestyle="dotted")
         axes[1].set_ylabel("momentum flux")
