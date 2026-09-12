@@ -8,4 +8,5 @@ kappan = 0.0
 alpha = 0.5
 
 [dimensions]
+Lz = 1
 nz = 1
