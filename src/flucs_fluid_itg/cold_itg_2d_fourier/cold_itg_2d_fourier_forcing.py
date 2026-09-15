@@ -5,13 +5,8 @@ from flucs.input import InvalidFlucsInputFileError
 from flucs.solvers.fourier.fourier_system_forcing import FourierSystemForcing
 
 
-class ColdITGAlfvenEigenmodeForcing(FourierSystemForcing):
-    """Prescribed zonal momentum flux from a growing Alfvén mode pair.
-
-    This is a one-way surrogate: it supplies the Reynolds-stress-like source
-    that an Alfvén eigenmode self-interaction would exert on the zonal flow,
-    without evolving an additional Alfvén envelope.
-    """
+class ZonalFlowForcing(FourierSystemForcing):
+    """Prescribed single-mode zonal momentum flux with logistic growth."""
 
     linear = False
     explicit = True
@@ -48,12 +43,14 @@ class ColdITGAlfvenEigenmodeForcing(FourierSystemForcing):
                 "forcing.midpoint_time must be finite."
             )
 
-        system.module_options.define_int("FORCING_AE_MODE", mode)
-        system.module_options.define_float("FORCING_AE_AMPLITUDE", amplitude)
-        system.module_options.define_float("FORCING_AE_PHASE", phase)
+        system.module_options.define_int("FORCING_ZONAL_FLOW_MODE", mode)
         system.module_options.define_float(
-            "FORCING_AE_GROWTH_RATE", growth_rate
+            "FORCING_ZONAL_FLOW_AMPLITUDE", amplitude
+        )
+        system.module_options.define_float("FORCING_ZONAL_FLOW_PHASE", phase)
+        system.module_options.define_float(
+            "FORCING_ZONAL_FLOW_GROWTH_RATE", growth_rate
         )
         system.module_options.define_float(
-            "FORCING_AE_MIDPOINT_TIME", midpoint
+            "FORCING_ZONAL_FLOW_MIDPOINT_TIME", midpoint
         )

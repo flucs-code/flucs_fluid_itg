@@ -19,7 +19,7 @@ from .cold_itg_2d_fourier_diagnostics import (
     MomentumFluxDiag,
     ZonalProfilesDiag,
 )
-from .cold_itg_2d_fourier_forcing import ColdITGAlfvenEigenmodeForcing
+from .cold_itg_2d_fourier_forcing import ZonalFlowForcing
 
 
 class ColdITG2DFourier(FourierSystem):
@@ -29,7 +29,7 @@ class ColdITG2DFourier(FourierSystem):
     number_of_dft_bits = 5
     keep_previous_stage_alive = False
     system_forcing_methods: ClassVar[dict[str, type[FourierSystemForcing]]] = {
-        "alfven_eigenmode": ColdITGAlfvenEigenmodeForcing,
+        "zonal_flow": ZonalFlowForcing,
     }
 
     # Direct pointers to the phi and T arrays

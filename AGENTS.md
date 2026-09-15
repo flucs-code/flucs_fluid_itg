@@ -202,10 +202,10 @@ The plugin provides:
   `momentum_flux/Pi_T = -overline{dx(phi) dy(T)}`.
 - `momentum_flux/Pi_t = Pi_phi + Pi_T` and
   `momentum_flux/Pi_d = -chi dx^2(coeffa phi - coeffb T)`.
-- When `[forcing].method = "alfven_eigenmode"`, `momentum_flux/Pi_AE` records
-  a prescribed zonal momentum flux from a single radial Alfvén-mode pair. The
-  forcing is applied explicitly to the zonal potential only, and `Pi_total` is
-  the sum of `Pi_t`, `Pi_d`, and `Pi_AE`.
+- When `[forcing].method = "zonal_flow"`, `momentum_flux/Pi_ZF` records
+  a prescribed zonal momentum flux at a single radial mode. The forcing is
+  applied explicitly to the zonal potential only, and `Pi_total` is the sum of
+  `Pi_t`, `Pi_d`, and `Pi_ZF`.
 
 The heat-flux and free-energy quantities are device functor reductions over the
 rFFT half-grid. The current scalar implementation calls `.get().item()` after
@@ -224,11 +224,11 @@ gather. `Pi_d` is formed directly in Fourier space with
 transferred together. Keep these buffers and FFT plans persistent; neither
 diagnostic should allocate CuPy arrays in `execute()`.
 
-The optional Alfvén-eigenmode forcing is configured with
+The optional zonal-flow forcing is configured with
 `forcing.momentum_flux_amplitude`, `forcing.radial_mode_number`,
 `forcing.radial_phase`, `forcing.growth_rate`, and `forcing.midpoint_time`.
-It is a one-way qualitative model of eigenmode self-interaction, not a coupled
-Alfvén-envelope evolution.
+It supplies a prescribed single-mode momentum flux with a logistic time
+envelope rather than evolving another dynamical field.
 
 Enable both profile diagnostics in a NetCDF output such as:
 
