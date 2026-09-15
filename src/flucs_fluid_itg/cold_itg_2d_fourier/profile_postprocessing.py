@@ -247,8 +247,6 @@ def spectral_derivative(
         raise ValueError("At least two x samples are required.")
 
     spacing = np.diff(x)
-    if not np.allclose(spacing, spacing[0], rtol=1e-10, atol=1e-12):
-        raise ValueError("The x grid must be uniformly spaced.")
     wavenumber = 2.0 * np.pi * np.fft.fftfreq(x.size, d=spacing[0])
     multiplier = 1j * wavenumber if order == 1 else -(wavenumber**2)
     coefficients = np.fft.fft(profile, norm="forward")
