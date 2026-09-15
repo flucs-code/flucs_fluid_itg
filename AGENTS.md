@@ -8,8 +8,9 @@ et al. (2020), *The Dimits regime of curvature-driven ion-temperature-gradient
 turbulence* (doi:10.1017/S0022377820000938). Most changes here should add or
 improve diagnostics and postprocessing without disturbing the working solver.
 
-The companion framework checkout is
-`/lustre/home/pivanov/source/github/flucs`. Read the relevant implementation
+The companion framework checkout is called `flucs` and its location is system-
+dependent. Ask the user in case you cannot find it automatically (e.g., by
+checking the installed python packages). Read the relevant implementation
 there before changing an inherited interface. This plugin and that checkout
 usually need matching development branches; the dependency in `pyproject.toml`
 is deliberately unpinned, so compatibility is not enforced by packaging.
