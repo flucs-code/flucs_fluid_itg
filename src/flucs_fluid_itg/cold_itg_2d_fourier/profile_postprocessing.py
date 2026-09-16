@@ -233,13 +233,13 @@ def spectral_derivative(
     x: np.ndarray,
     order: int = 1,
 ) -> np.ndarray:
-    """Return a spectral derivative of a real periodic one-dimensional field."""
+    """Differentiate real periodic profiles along their final axis."""
 
     profile = np.asarray(profile)
     x = np.asarray(x, dtype=float)
-    if profile.ndim != 1 or x.ndim != 1 or profile.shape != x.shape:
+    if profile.ndim < 1 or x.ndim != 1 or profile.shape[-1] != x.size:
         raise ValueError(
-            "Profile and x must be matching one-dimensional arrays."
+            "The final profile axis must match the one-dimensional x grid."
         )
     if order not in (1, 2):
         raise ValueError("Only first and second derivatives are supported.")
@@ -249,9 +249,9 @@ def spectral_derivative(
     spacing = np.diff(x)
     wavenumber = 2.0 * np.pi * np.fft.fftfreq(x.size, d=spacing[0])
     multiplier = 1j * wavenumber if order == 1 else -(wavenumber**2)
-    coefficients = np.fft.fft(profile, norm="forward")
+    coefficients = np.fft.fft(profile, axis=-1, norm="forward")
     return np.fft.ifft(
-        multiplier * coefficients, norm="forward"
+        multiplier * coefficients, axis=-1, norm="forward"
     ).real.astype(profile.dtype, copy=False)
 
 
