@@ -8,7 +8,9 @@ from flucs.utilities.cupy import KernelWrapper
 
 
 class ZonalProfilesDiag(FlucsDiagnostic):
-    """Zonal potential and temperature profiles on the padded x grid."""
+    """
+    Zonal potential and temperature profiles on the padded x grid.
+    """
 
     name = "zonal_profiles"
 
@@ -88,7 +90,9 @@ class ZonalProfilesDiag(FlucsDiagnostic):
 
 
 class MomentumFluxDiag(FlucsDiagnostic):
-    """Zonal turbulent and collisional momentum-flux profiles."""
+    """
+    Zonal turbulent and collisional momentum-flux profiles.
+    """
 
     name = "momentum_flux"
 
