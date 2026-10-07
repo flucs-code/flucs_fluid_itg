@@ -238,7 +238,7 @@ class MomentumFluxDiag(FlucsDiagnostic):
             fields,
             self.products_fourier,
             self.momentum_flux_fourier,
-            self.system.float(self.system.current_time),
+            self.system.time_float(self.system.current_time),
         )
         self.momentum_flux_fourier.get(out=self.momentum_flux_fourier_host)
         # Transform all packed components back to physical x profiles at once.

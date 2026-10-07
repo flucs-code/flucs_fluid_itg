@@ -10,7 +10,7 @@ extern "C" {
 __device__ void get_linear_matrix(
     const size_t index,
     const FLUCS_FLOAT dt,
-    const FLUCS_FLOAT current_time,
+    const double current_time,
     const long long current_step,
     FLUCS_COMPLEX matrix[2][2]
 ) {
@@ -192,7 +192,7 @@ __global__ void find_momentum_flux_products(
 }
 
 __device__ FLUCS_FLOAT zonal_flow_envelope(
-    const FLUCS_FLOAT current_time
+    const double current_time
 ) {
 #ifdef FORCING_METHOD_ZONAL_FLOW
     const FLUCS_FLOAT exponent =
@@ -211,7 +211,7 @@ __device__ FLUCS_FLOAT zonal_flow_envelope(
 }
 
 __device__ FLUCS_COMPLEX get_zonal_flow_momentum_flux(
-    const size_t ikx, const FLUCS_FLOAT current_time
+    const size_t ikx, const double current_time
 ) {
 #ifdef FORCING_METHOD_ZONAL_FLOW
     const FLUCS_FLOAT envelope = zonal_flow_envelope(current_time);
@@ -244,7 +244,7 @@ __global__ void gather_momentum_flux(
     const FLUCS_COMPLEX fields_global[NUMBER_OF_FIELDS][HALFSIZE],
     const FLUCS_COMPLEX products_global[2][HALFSIZE],
     FLUCS_COMPLEX momentum_flux_global[6][NX],
-    const FLUCS_FLOAT current_time
+    const double current_time
 ) {
     const size_t ikx = blockDim.x * blockIdx.x + threadIdx.x;
     if (!(ikx < NX))
@@ -286,7 +286,7 @@ __global__ void gather_momentum_flux(
 __device__ void add_nonlinear_terms(
     const size_t index,
     const FLUCS_FLOAT dt,
-    const FLUCS_FLOAT current_time,
+    const double current_time,
     const long long current_step,
     const FLUCS_COMPLEX dft_bits_global[NUMBER_OF_DFT_BITS][HALFSIZE],
     FLUCS_COMPLEX explicit_terms[NUMBER_OF_FIELDS]
@@ -332,7 +332,7 @@ __device__ void add_nonlinear_terms(
 __device__ void add_forcing_explicit(
     const size_t index,
     const FLUCS_FLOAT dt,
-    const FLUCS_FLOAT current_time,
+    const double current_time,
     const long long current_step,
     const FLUCS_COMPLEX previous_fields_forcing[NUMBER_OF_FIELDS],
     FLUCS_COMPLEX explicit_terms[NUMBER_OF_FIELDS]
