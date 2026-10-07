@@ -56,9 +56,9 @@ class ZonalProfilesDiag(FlucsDiagnostic):
             (self.system.nx + self.system.cuda_block_size - 1)
             // self.system.cuda_block_size,
         )
-        self.gather_zonal_fields_kernel = KernelWrapper(
+        self.get_zonal_fields_kernel = KernelWrapper(
             system=self.system,
-            cuda_kernel_name="gather_zonal_fields",
+            cuda_kernel_name="get_zonal_fields",
             grid=grid,
             block=(self.system.cuda_block_size,),
         )
@@ -73,7 +73,7 @@ class ZonalProfilesDiag(FlucsDiagnostic):
 
     def execute(self):
         # Gather ky = 0 directly instead of transferring the full 2D fields.
-        self.gather_zonal_fields_kernel(
+        self.get_zonal_fields_kernel(
             self.system.get_fields(), self.zonal_fourier
         )
         self.zonal_fourier.get(out=self.zonal_fourier_host)
@@ -132,7 +132,7 @@ class MomentumFluxDiag(FlucsDiagnostic):
         )
         self.add_var(
             FlucsDiagnosticVariable(
-                name="Pi_ZF",
+                name="Pi_ZF_forcing",
                 shape=("x",),
                 dimensions={"x": x},
                 is_complex=False,
@@ -247,7 +247,14 @@ class MomentumFluxDiag(FlucsDiagnostic):
         ).real.astype(self.system.float, copy=False)
 
         for index, name in enumerate(
-            ("Pi_phi", "Pi_T", "Pi_t", "Pi_d", "Pi_ZF", "Pi_total")
+            (
+                "Pi_phi",
+                "Pi_T",
+                "Pi_t",
+                "Pi_d",
+                "Pi_ZF_forcing",
+                "Pi_total",
+            )
         ):
             self.save_data(name, profiles[index])
 

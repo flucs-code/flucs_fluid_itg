@@ -202,10 +202,10 @@ The plugin provides:
   `momentum_flux/Pi_T = -overline{dx(phi) dy(T)}`.
 - `momentum_flux/Pi_t = Pi_phi + Pi_T` and
   `momentum_flux/Pi_d = -chi dx^2(coeffa phi - coeffb T)`.
-- When `[forcing].method = "zonal_flow"`, `momentum_flux/Pi_ZF` records
+- When `[forcing].method = "zonal_flow"`, `momentum_flux/Pi_ZF_forcing` records
   a prescribed zonal momentum flux at a single radial mode. The forcing is
   applied explicitly to the zonal potential only, and `Pi_total` is the sum of
-  `Pi_t`, `Pi_d`, and `Pi_ZF`.
+  `Pi_t`, `Pi_d`, and `Pi_ZF_forcing`.
 
 The heat-flux and free-energy quantities are device functor reductions over the
 rFFT half-grid. The current scalar implementation calls `.get().item()` after
