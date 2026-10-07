@@ -58,9 +58,7 @@ is specially protected from division by zero.
 The paper's two main physical parameters are `kappaT` and `chi`. This
 implementation also exposes `kappaB`, `kappan`, and independently named
 collisional coefficients `coeffa` and `coeffb`; the CUDA definitions use
-`COEFFA_TIMES_CHI` and `COEFFB_TIMES_CHI`. The default `alpha` parameter is
-currently unused. Do not remove or reinterpret it casually because existing
-input files may contain it.
+`COEFFA_TIMES_CHI` and `COEFFB_TIMES_CHI`.
 
 The linear operator is evaluated per Fourier mode in `get_linear_matrix` and
 advanced by the core Fourier timesteppers using a Padé-approximated exponential
