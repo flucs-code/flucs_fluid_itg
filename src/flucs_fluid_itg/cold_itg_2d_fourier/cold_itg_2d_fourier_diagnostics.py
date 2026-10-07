@@ -1,8 +1,267 @@
-import cupy as cp
 from collections.abc import Callable
+
+import cupy as cp
 import numpy as np
 from flucs.diagnostic import FlucsDiagnostic, FlucsDiagnosticVariable
 from flucs.solvers.fourier.fourier_system_reductions import FourierReductions
+from flucs.utilities.cupy import KernelWrapper
+
+
+class ZonalProfilesDiag(FlucsDiagnostic):
+    """
+    Zonal potential and temperature profiles on the padded x grid.
+    """
+
+    name = "zonal_profiles"
+
+    def init_vars(self):
+        x = (
+            np.arange(self.system.nx, dtype=self.system.float)
+            * self.system.float(self.system.input["dimensions.Lx"])
+            / self.system.float(self.system.nx)
+        )
+        self.add_var(
+            FlucsDiagnosticVariable(
+                name="phi",
+                shape=("x",),
+                dimensions={"x": x},
+                is_complex=False,
+            )
+        )
+        self.add_var(
+            FlucsDiagnosticVariable(
+                name="T",
+                shape=("x",),
+                dimensions={"x": x},
+                is_complex=False,
+            )
+        )
+        self.add_var(
+            FlucsDiagnosticVariable(
+                name="gamma_max",
+                shape=(),
+                dimensions={},
+                is_complex=False,
+            )
+        )
+
+        # Keep both zonal fields packed so they cross to the host together.
+        self.zonal_fourier = cp.zeros(
+            (2, self.system.nx), dtype=self.system.complex
+        )
+        self.zonal_fourier_host = np.empty(
+            (2, self.system.nx), dtype=self.system.complex
+        )
+
+    def register_kernels(self):
+        grid = (
+            (self.system.nx + self.system.cuda_block_size - 1)
+            // self.system.cuda_block_size,
+        )
+        self.get_zonal_fields_kernel = KernelWrapper(
+            system=self.system,
+            cuda_kernel_name="get_zonal_fields",
+            grid=grid,
+            block=(self.system.cuda_block_size,),
+        )
+
+    def ready(self):
+        # The linear growth rate is fixed by the input, so compute it once.
+        eigvals = self.system.compute_linear_eigensystem()["eigvals"]
+        solved = self.system.get_solved_grid_mask().astype(bool)
+        self.gamma_max = self.system.float(
+            np.max(eigvals[:, solved].imag)
+        )
+
+    def execute(self):
+        # Gather ky = 0 directly instead of transferring the full 2D fields.
+        self.get_zonal_fields_kernel(
+            self.system.get_fields(), self.zonal_fourier
+        )
+        self.zonal_fourier.get(out=self.zonal_fourier_host)
+        # Stored coefficients are forward-normalised, matching this FFT norm.
+        profiles = np.fft.ifft(
+            self.zonal_fourier_host, axis=-1, norm="forward"
+        ).real.astype(self.system.float, copy=False)
+
+        self.save_data("phi", profiles[0])
+        self.save_data("T", profiles[1])
+        self.save_data("gamma_max", self.gamma_max)
+
+
+class MomentumFluxDiag(FlucsDiagnostic):
+    """
+    Zonal turbulent and collisional momentum-flux profiles.
+    """
+
+    name = "momentum_flux"
+
+    def init_vars(self):
+        x = (
+            np.arange(self.system.nx, dtype=self.system.float)
+            * self.system.float(self.system.input["dimensions.Lx"])
+            / self.system.float(self.system.nx)
+        )
+        self.add_var(
+            FlucsDiagnosticVariable(
+                name="Pi_phi",
+                shape=("x",),
+                dimensions={"x": x},
+                is_complex=False,
+            )
+        )
+        self.add_var(
+            FlucsDiagnosticVariable(
+                name="Pi_T",
+                shape=("x",),
+                dimensions={"x": x},
+                is_complex=False,
+            )
+        )
+        self.add_var(
+            FlucsDiagnosticVariable(
+                name="Pi_t",
+                shape=("x",),
+                dimensions={"x": x},
+                is_complex=False,
+            )
+        )
+        self.add_var(
+            FlucsDiagnosticVariable(
+                name="Pi_d",
+                shape=("x",),
+                dimensions={"x": x},
+                is_complex=False,
+            )
+        )
+        self.add_var(
+            FlucsDiagnosticVariable(
+                name="Pi_ZF_forcing",
+                shape=("x",),
+                dimensions={"x": x},
+                is_complex=False,
+            )
+        )
+        self.add_var(
+            FlucsDiagnosticVariable(
+                name="Pi_total",
+                shape=("x",),
+                dimensions={"x": x},
+                is_complex=False,
+            )
+        )
+
+        # Pack every component for one device-to-host transfer and inverse FFT.
+        self.momentum_flux_fourier = cp.zeros(
+            (6, self.system.nx), dtype=self.system.complex
+        )
+        self.momentum_flux_fourier_host = np.empty(
+            (6, self.system.nx), dtype=self.system.complex
+        )
+
+    def register_kernels(self):
+        # The callbacks below are registered before the shared CUDA module is
+        # compiled, as required by the dealiased-operation factory.
+        self.find_derivatives_kernel = KernelWrapper(
+            system=self.system,
+            cuda_kernel_name="find_momentum_flux_derivatives",
+            grid=(self.system.half_cuda_grid_size,),
+            block=(self.system.cuda_block_size,),
+        )
+        self.find_products_kernel = KernelWrapper(
+            system=self.system,
+            cuda_kernel_name="find_momentum_flux_products",
+            grid=(self.system.full_cuda_grid_size,),
+            block=(self.system.cuda_block_size,),
+        )
+        zonal_grid = (
+            (self.system.nx + self.system.cuda_block_size - 1)
+            // self.system.cuda_block_size,
+        )
+        self.gather_kernel = KernelWrapper(
+            system=self.system,
+            cuda_kernel_name="gather_momentum_flux",
+            grid=zonal_grid,
+            block=(self.system.cuda_block_size,),
+        )
+
+        def create_first_intermediates(
+            current_dt,
+            current_time,
+            current_step,
+            fields,
+            memory_dict,
+        ):
+            # Produce dx(phi), dy(phi), and dy(T) in Fourier space.
+            self.find_derivatives_kernel(
+                fields, memory_dict["first_intermediates_fourier"]
+            )
+
+        def create_second_intermediates(
+            current_dt,
+            current_time,
+            current_step,
+            calculate_cfl,
+            memory_dict,
+        ):
+            # Form both flux products after transforming to the padded grid.
+            self.find_products_kernel(
+                memory_dict["first_intermediates_real"],
+                memory_dict["second_intermediates_real"],
+            )
+
+        # Reuse the solver's two-thirds or phase-shift path so these quadratic
+        # diagnostic products obey the same dealiasing as the evolution.
+        self.operation, self.products_fourier = (
+            self.system.create_dealiased_operation(
+                n_in=3,
+                n_out=2,
+                create_first_intermediates=create_first_intermediates,
+                create_second_intermediates=create_second_intermediates,
+                allocate_additional_memory=None,
+                # The product kernel reads all aliased inputs before writing.
+                combine_first_and_second_intermediates=True,
+            )
+        )
+
+    def ready(self):
+        pass
+
+    def execute(self):
+        fields = self.system.get_fields()
+        # This leaves the two dealiased product spectra in products_fourier.
+        self.operation(
+            self.system.current_dt,
+            self.system.current_time,
+            self.system.current_step,
+            fields,
+            calculate_cfl=False,
+        )
+        # Gather ky = 0 and add the Fourier-space dissipative/forcing terms.
+        self.gather_kernel(
+            fields,
+            self.products_fourier,
+            self.momentum_flux_fourier,
+            self.system.time_float(self.system.current_time),
+        )
+        self.momentum_flux_fourier.get(out=self.momentum_flux_fourier_host)
+        # Transform all packed components back to physical x profiles at once.
+        profiles = np.fft.ifft(
+            self.momentum_flux_fourier_host, axis=-1, norm="forward"
+        ).real.astype(self.system.float, copy=False)
+
+        for index, name in enumerate(
+            (
+                "Pi_phi",
+                "Pi_T",
+                "Pi_t",
+                "Pi_d",
+                "Pi_ZF_forcing",
+                "Pi_total",
+            )
+        ):
+            self.save_data(name, profiles[index])
+
 
 class HeatfluxDiag(FlucsDiagnostic):
     name = "heatflux"

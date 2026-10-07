@@ -7,20 +7,33 @@ from typing import ClassVar
 
 import cupy as cp
 import numpy as np
-from flucs.input import InvalidFlucsInputFileError
 from flucs.diagnostic import FlucsDiagnostic
+from flucs.input import InvalidFlucsInputFileError
 from flucs.solvers.fourier.fourier_system import FourierSystem
+from flucs.solvers.fourier.fourier_system_forcing import FourierSystemForcing
 from flucs.utilities.cupy import KernelWrapper
 
-from .cold_itg_2d_fourier_diagnostics import FreeEnergyDiag, HeatfluxDiag
+from .cold_itg_2d_fourier_diagnostics import (
+    FreeEnergyDiag,
+    HeatfluxDiag,
+    MomentumFluxDiag,
+    ZonalProfilesDiag,
+)
+from .cold_itg_2d_fourier_forcing import ZonalFlowForcing
 
 
 class ColdITG2DFourier(FourierSystem):
-    """Fourier solver for the 2D system."""
+    """
+    Fourier solver for the 2D system.
+    """
+
     number_of_fields = 2
     number_of_dft_derivatives = 5
     number_of_dft_bits = 5
     keep_previous_stage_alive = False
+    system_forcing_methods: ClassVar[dict[str, type[FourierSystemForcing]]] = {
+        "zonal_flow": ZonalFlowForcing,
+    }
 
     # Direct pointers to the phi and T arrays
     phi: list
@@ -35,7 +48,10 @@ class ColdITG2DFourier(FourierSystem):
 
     # Supported diagnostics
     diags: ClassVar[set[type[FlucsDiagnostic]]] = {
-        HeatfluxDiag, FreeEnergyDiag
+        HeatfluxDiag,
+        FreeEnergyDiag,
+        ZonalProfilesDiag,
+        MomentumFluxDiag,
     }
 
     def ready(self):
@@ -132,6 +148,17 @@ class ColdITG2DFourier(FourierSystem):
                     combine_first_and_second_intermediates=True,
                 )
             )
+
+        # Diagnostics are instantiated while outputs are set up, before the
+        # CUDA module is compiled. Give selected diagnostics an opportunity to
+        # register kernels and build dealiased operations here, after the
+        # standard CUDA launch sizes have been configured.
+        for output in self.output_heap or []:
+            for diagnostic in output.diagnostics:
+                if isinstance(
+                    diagnostic, (ZonalProfilesDiag, MomentumFluxDiag)
+                ):
+                    diagnostic.register_kernels()
 
     def _allocate_memory(self) -> None:
         """Allocates runtime arrays."""

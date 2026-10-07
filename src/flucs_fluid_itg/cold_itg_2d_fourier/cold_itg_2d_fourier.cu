@@ -10,7 +10,7 @@ extern "C" {
 __device__ void get_linear_matrix(
     const size_t index,
     const FLUCS_FLOAT dt,
-    const FLUCS_FLOAT current_time,
+    const double current_time,
     const long long current_step,
     FLUCS_COMPLEX matrix[2][2]
 ) {
@@ -132,10 +132,162 @@ __global__ void find_nonlinear_bits(
     real_bits_global[4][index] = dyphi * p;
 }
 
+__global__ void get_zonal_fields(
+    const FLUCS_COMPLEX fields_global[NUMBER_OF_FIELDS][HALFSIZE],
+    FLUCS_COMPLEX zonal_fields_global[2][NX]
+) {
+    const size_t ikx = blockDim.x * blockIdx.x + threadIdx.x;
+    if (!(ikx < NX))
+        return;
+
+    // ky is contiguous, so this selects the ky = 0 coefficient at each kx.
+    const size_t index = ikx * HALF_NY;
+    zonal_fields_global[0][ikx] = fields_global[0][index];
+    zonal_fields_global[1][ikx] = fields_global[1][index];
+}
+
+__global__ void find_momentum_flux_derivatives(
+    const FLUCS_COMPLEX fields_global[NUMBER_OF_FIELDS][HALFSIZE],
+    FLUCS_COMPLEX derivatives_global[3][HALFSIZE]
+) {
+    const size_t index = blockDim.x * blockIdx.x + threadIdx.x;
+    if (!(index < HALFSIZE))
+        return;
+
+    if (is_mode_padded(index)) {
+        // Padded modes must remain zero through the diagnostic FFT pipeline.
+        derivatives_global[0][index] = 0;
+        derivatives_global[1][index] = 0;
+        derivatives_global[2][index] = 0;
+        return;
+    }
+
+    // These three fields are transformed together before forming products.
+    const indices3d_t indices = get_indices3d<1, NX, HALF_NY>(index);
+    const FLUCS_COMPLEX dx = dx_from_ikx(indices.ikx);
+    const FLUCS_COMPLEX dy = dy_from_iky(indices.iky);
+    const FLUCS_COMPLEX phi = fields_global[0][index];
+    const FLUCS_COMPLEX temperature = fields_global[1][index];
+
+    derivatives_global[0][index] = dx * phi;
+    derivatives_global[1][index] = dy * phi;
+    derivatives_global[2][index] = dy * temperature;
+}
+
+__global__ void find_momentum_flux_products(
+    const FLUCS_FLOAT derivatives_global[3][FULLSIZE],
+    FLUCS_FLOAT products_global[2][FULLSIZE]
+) {
+    const size_t index = blockDim.x * blockIdx.x + threadIdx.x;
+    if (!(index < FULLSIZE))
+        return;
+
+    // The input and output arrays may alias. Read every input first.
+    const FLUCS_FLOAT dxphi = derivatives_global[0][index];
+    const FLUCS_FLOAT dyphi = derivatives_global[1][index];
+    const FLUCS_FLOAT dytemperature = derivatives_global[2][index];
+
+    products_global[0][index] = -dxphi * dyphi;
+    products_global[1][index] = -dxphi * dytemperature;
+}
+
+__device__ FLUCS_FLOAT zonal_flow_forcing_envelope(
+    const double current_time
+) {
+#ifdef FORCING_METHOD_ZONAL_FLOW
+    const FLUCS_FLOAT exponent =
+        (FLUCS_FLOAT)2.0 * FORCING_ZONAL_FLOW_GROWTH_RATE
+        * (current_time - FORCING_ZONAL_FLOW_MIDPOINT_TIME);
+    // Evaluate the logistic envelope without overflowing either exponential.
+    if (exponent >= (FLUCS_FLOAT)0.0)
+        return (FLUCS_FLOAT)1.0
+            / ((FLUCS_FLOAT)1.0 + flucs_exp(-exponent));
+    const FLUCS_FLOAT exp_exponent = flucs_exp(exponent);
+    return exp_exponent / ((FLUCS_FLOAT)1.0 + exp_exponent);
+#else
+    (void)current_time;
+    return (FLUCS_FLOAT)0.0;
+#endif
+}
+
+__device__ FLUCS_COMPLEX get_zonal_flow_forcing_momentum_flux(
+    const size_t ikx, const double current_time
+) {
+#ifdef FORCING_METHOD_ZONAL_FLOW
+    const FLUCS_FLOAT forcing_envelope =
+        zonal_flow_forcing_envelope(current_time);
+    const FLUCS_COMPLEX phase = FLUCS_COMPLEX(
+        flucs_cos(FORCING_ZONAL_FLOW_PHASE),
+        flucs_sin(FORCING_ZONAL_FLOW_PHASE)
+    );
+    const FLUCS_COMPLEX phase_conjugate = FLUCS_COMPLEX(
+        flucs_cos(FORCING_ZONAL_FLOW_PHASE),
+        -flucs_sin(FORCING_ZONAL_FLOW_PHASE)
+    );
+    const FLUCS_COMPLEX coefficient =
+        (FLUCS_FLOAT)0.5 * FORCING_ZONAL_FLOW_AMPLITUDE
+        * forcing_envelope * phase;
+    // The conjugate pair makes the prescribed real-space flux real.
+    if (ikx == (size_t)FORCING_ZONAL_FLOW_MODE)
+        return FLUCS_COMPLEX(0.0, 1.0) * coefficient;
+    if (ikx == NX - (size_t)FORCING_ZONAL_FLOW_MODE)
+        return -FLUCS_COMPLEX(0.0, 1.0)
+            * ((FLUCS_FLOAT)0.5 * FORCING_ZONAL_FLOW_AMPLITUDE
+                * forcing_envelope * phase_conjugate);
+#else
+    (void)ikx;
+    (void)current_time;
+#endif
+    return FLUCS_COMPLEX(0.0, 0.0);
+}
+
+__global__ void gather_momentum_flux(
+    const FLUCS_COMPLEX fields_global[NUMBER_OF_FIELDS][HALFSIZE],
+    const FLUCS_COMPLEX products_global[2][HALFSIZE],
+    FLUCS_COMPLEX momentum_flux_global[6][NX],
+    const double current_time
+) {
+    const size_t ikx = blockDim.x * blockIdx.x + threadIdx.x;
+    if (!(ikx < NX))
+        return;
+
+    // Only ky = 0 survives the y average defining each zonal profile.
+    const size_t index = ikx * HALF_NY;
+    if (is_mode_padded(index)) {
+        for (int component = 0; component < 6; ++component)
+            momentum_flux_global[component][ikx] = 0;
+        return;
+    }
+
+    // The diagnostic R2C transform is unnormalised; convert back to the
+    // solver's forward-normalised Fourier convention during the gather.
+    const FLUCS_COMPLEX pi_phi =
+        DFT_FULLSIZE_FACTOR * products_global[0][index];
+    const FLUCS_COMPLEX pi_temperature =
+        DFT_FULLSIZE_FACTOR * products_global[1][index];
+    const FLUCS_FLOAT kx = kx_from_ikx(ikx);
+    // -chi dx^2(coeffa phi - coeffb T) gains this sign in Fourier space.
+    const FLUCS_COMPLEX pi_dissipative = kx * kx * (
+        COEFFA_TIMES_CHI * fields_global[0][index]
+        - COEFFB_TIMES_CHI * fields_global[1][index]
+    );
+    const FLUCS_COMPLEX pi_zonal_flow_forcing =
+        get_zonal_flow_forcing_momentum_flux(ikx, current_time);
+
+    momentum_flux_global[0][ikx] = pi_phi;
+    momentum_flux_global[1][ikx] = pi_temperature;
+    momentum_flux_global[2][ikx] = pi_phi + pi_temperature;
+    momentum_flux_global[3][ikx] = pi_dissipative;
+    momentum_flux_global[4][ikx] = pi_zonal_flow_forcing;
+    momentum_flux_global[5][ikx] =
+        pi_phi + pi_temperature + pi_dissipative
+        + pi_zonal_flow_forcing;
+}
+
 __device__ void add_nonlinear_terms(
     const size_t index,
     const FLUCS_FLOAT dt,
-    const FLUCS_FLOAT current_time,
+    const double current_time,
     const long long current_step,
     const FLUCS_COMPLEX dft_bits_global[NUMBER_OF_DFT_BITS][HALFSIZE],
     FLUCS_COMPLEX explicit_terms[NUMBER_OF_FIELDS]
@@ -176,6 +328,27 @@ __device__ void add_nonlinear_terms(
         dy * dxphi_p - dx * dyphi_p
     );
 }
+
+#ifdef FORCING_METHOD_ZONAL_FLOW
+__device__ void add_forcing_explicit(
+    const size_t index,
+    const FLUCS_FLOAT dt,
+    const double current_time,
+    const long long current_step,
+    const FLUCS_COMPLEX previous_fields_forcing[NUMBER_OF_FIELDS],
+    FLUCS_COMPLEX explicit_terms[NUMBER_OF_FIELDS]
+) {
+    (void)dt;
+    (void)current_step;
+    (void)previous_fields_forcing;
+    const indices3d_t indices = get_indices3d<1, NX, HALF_NY>(index);
+    // Only zonal potential modes receive this explicit source.
+    if (indices.iky == 0)
+        explicit_terms[0] += get_zonal_flow_forcing_momentum_flux(
+            indices.ikx, current_time
+        );
+}
+#endif
 
 struct FreeEnergy_Functor {
     const FLUCS_COMPLEX* __restrict__ fields_global;
