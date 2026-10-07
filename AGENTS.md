@@ -31,8 +31,9 @@ is deliberately unpinned, so compatibility is not enforced by packaging.
   `FourierSystem` defaults. Defaults are loaded through the system MRO, based on
   module and TOML stem names; preserve this naming/layout convention.
 - `cold_itg_2d_fourier_diagnostics.py` defines the system runtime diagnostics.
-- `profile_postprocessing.py` contains CPU-only, restart-aware time-averaging
-  and spectral-derivative helpers shared by the profile plotting scripts.
+- `cold_itg_2d_fourier/postprocessing/_profile_helpers.py` contains CPU-only,
+  restart-aware time-averaging and spectral-derivative helpers shared by the
+  profile plotting scripts. Its leading underscore keeps it out of `flucs -p`.
 - `cold_itg_2d_fourier/postprocessing/*.py` contains discoverable standalone
   postprocessing scripts. `flucs -p` finds both solver and system scripts by
   inspecting the installed class locations.

@@ -4,25 +4,33 @@ import argparse
 import pathlib as pl
 
 import matplotlib.pyplot as plt
+
 from flucs.postprocessing import FlucsPostProcessing
-from flucs_fluid_itg.cold_itg_2d_fourier.profile_postprocessing import (
+
+from flucs_fluid_itg.cold_itg_2d_fourier.postprocessing._profile_helpers import (
     load_profile_averages,
     parse_time_window,
     spectral_derivative,
 )
 
 
-def plot_zonal_profiles(
-    post,
-    *,
-    groups=None,
-    time=None,
-    fraction=None,
-):
-    """Create one five-panel zonal-profile figure per simulation."""
+def plot_zonal_profiles(post, args):
+    """
+    Create one five-panel zonal-profile figure per simulation.
+    """
 
+    # Alias arguments
+    groups = args.groups
+    time = args.time
+    fraction = args.fraction
+
+    # Get valid files for the zonal-potential profile
     nc_paths = post.get_valid_netcdf_paths("zonal_profiles/phi")
+
+    # Iterate over output files
     for nc_path in nc_paths:
+
+        # Load and time average the profile data
         average = load_profile_averages(
             post,
             nc_path,
@@ -42,6 +50,7 @@ def plot_zonal_profiles(
         shear = spectral_derivative(phi, x, order=2)
         temperature_gradient = spectral_derivative(temperature, x)
 
+        # Initialise plotting
         fig, axes = plt.subplots(
             5, 1, sharex=True, layout="constrained", figsize=(7, 11)
         )
@@ -53,6 +62,7 @@ def plot_zonal_profiles(
             rf"{average.time_max:.4g}]$"
         )
 
+        # Plot the zonal profiles and their derivatives
         axes[0].plot(x, phi - phi.mean(), color="black")
         axes[0].set_ylabel(r"$\overline{\phi}-\langle\overline{\phi}\rangle_x$")
 
@@ -84,6 +94,7 @@ def plot_zonal_profiles(
             axis.axhline(0.0, color="0.7", linewidth=0.7)
             axis.set_xlim(x[0], x[-1])
 
+        # Save figure if required
         post.save(
             fig,
             name=figure_name,
@@ -95,6 +106,8 @@ def plot_zonal_profiles(
 
 
 if __name__ == "__main__":
+
+    # Setup parser
     parser = argparse.ArgumentParser(
         parents=[FlucsPostProcessing.parser()],
         description="Plot time-averaged zonal profiles.",
@@ -115,15 +128,13 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
+    # Initialise post-processing object
     post = FlucsPostProcessing(
         io_paths=args.io_path,
         save_directory=args.save_directory,
         output_files=["output.1d.nc"],
         constraint="both",
     )
-    plot_zonal_profiles(
-        post,
-        groups=args.groups,
-        time=args.time,
-        fraction=args.fraction,
-    )
+
+    # Call function
+    plot_zonal_profiles(post, args)

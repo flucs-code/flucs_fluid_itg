@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from flucs.postprocessing import FlucsPostProcessing
 from flucs.utilities.messages import flucsprint
 
-from flucs_fluid_itg.cold_itg_2d_fourier.profile_postprocessing import (
+from flucs_fluid_itg.cold_itg_2d_fourier.postprocessing._profile_helpers import (
     load_profile_averages,
     parse_time_window,
     spectral_derivative,
@@ -30,17 +30,23 @@ def _warn_for_hyperdissipation(average, nc_path):
             return
 
 
-def plot_momentum_flux(
-    post,
-    *,
-    groups=None,
-    time=None,
-    fraction=None,
-):
-    """Create one decomposition-and-balance figure per simulation."""
+def plot_momentum_flux(post, args):
+    """
+    Create one decomposition-and-balance figure per simulation.
+    """
 
+    # Alias arguments
+    groups = args.groups
+    time = args.time
+    fraction = args.fraction
+
+    # Get valid files for the momentum-flux diagnostic
     nc_paths = post.get_valid_netcdf_paths("momentum_flux/Pi_phi")
+
+    # Iterate over output files
     for nc_path in nc_paths:
+
+        # Load and time average the momentum-flux profiles
         average = load_profile_averages(
             post,
             nc_path,
@@ -69,6 +75,7 @@ def plot_momentum_flux(
         pi_total = average.values["Pi_total"]
         shear = spectral_derivative(average.values["phi"], x, order=2)
 
+        # Initialise plotting
         fig, axes = plt.subplots(
             2, 1, sharex=True, layout="constrained", figsize=(7, 7)
         )
@@ -80,6 +87,7 @@ def plot_momentum_flux(
             rf"{average.time_max:.4g}]$"
         )
 
+        # Plot the flux decomposition
         axes[0].plot(x, pi_phi, label=r"$\Pi_\phi$")
         axes[0].plot(x, pi_temperature, label=r"$\Pi_T$")
         axes[0].plot(x, pi_turbulent, label=r"$\Pi_t$")
@@ -92,6 +100,7 @@ def plot_momentum_flux(
         axes[0].set_ylabel("decomposition")
         axes[0].legend(ncols=2)
 
+        # Plot the zonal-flow balance
         axes[1].plot(x, pi_turbulent, label=r"$\Pi_t$")
         axes[1].plot(x, pi_dissipative, label=r"$\Pi_d$")
         axes[1].plot(
@@ -114,6 +123,7 @@ def plot_momentum_flux(
         for axis in axes:
             axis.set_xlim(x[0], x[-1])
 
+        # Save figure if required
         post.save(
             fig,
             name=figure_name,
@@ -125,6 +135,8 @@ def plot_momentum_flux(
 
 
 if __name__ == "__main__":
+
+    # Setup parser
     parser = argparse.ArgumentParser(
         parents=[FlucsPostProcessing.parser()],
         description="Plot time-averaged zonal momentum-flux profiles.",
@@ -145,15 +157,13 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
+    # Initialise post-processing object
     post = FlucsPostProcessing(
         io_paths=args.io_path,
         save_directory=args.save_directory,
         output_files=["output.1d.nc"],
         constraint="both",
     )
-    plot_momentum_flux(
-        post,
-        groups=args.groups,
-        time=args.time,
-        fraction=args.fraction,
-    )
+
+    # Call function
+    plot_momentum_flux(post, args)

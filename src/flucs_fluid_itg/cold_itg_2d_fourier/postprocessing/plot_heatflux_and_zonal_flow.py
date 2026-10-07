@@ -5,13 +5,16 @@ import pathlib as pl
 
 import matplotlib.pyplot as plt
 import numpy as np
-from flucs.postprocessing import FlucsPostProcessing
-from flucs_fluid_itg.cold_itg_2d_fourier.profile_postprocessing import (
-    parse_time_window,
-    spectral_derivative,
-)
 from matplotlib.cm import ScalarMappable
 from matplotlib.colors import Normalize
+
+from flucs.postprocessing import FlucsPostProcessing
+
+from flucs_fluid_itg.cold_itg_2d_fourier.postprocessing._profile_helpers import (
+    parse_time_window,
+    spectral_derivative,
+    validate_time_segments,
+)
 
 
 def _group_ids(post, heatflux_path, profile_path, groups):
@@ -45,22 +48,6 @@ def _group_ids(post, heatflux_path, profile_path, groups):
     return [str(group) for group in selected]
 
 
-def _validate_times(times, name):
-    previous_end = None
-    for time in times:
-        if time.ndim != 1 or not time.size:
-            raise ValueError(f"{name} time coordinates must be non-empty and 1D.")
-        if not np.all(np.isfinite(time)):
-            raise ValueError(f"{name} time coordinates must be finite.")
-        if time.size > 1 and np.any(np.diff(time) <= 0.0):
-            raise ValueError(f"{name} times must increase within each group.")
-        if previous_end is not None and time[0] < previous_end and not np.isclose(
-            time[0], previous_end, rtol=1e-12, atol=1e-14
-        ):
-            raise ValueError(f"{name} output groups overlap in time.")
-        previous_end = time[-1]
-
-
 def _load_segments(post, heatflux_path, profile_path, groups):
     heatflux_times = post.load_netcdf_variable(
         heatflux_path, "time", groups=groups, concatenate=False
@@ -81,12 +68,18 @@ def _load_segments(post, heatflux_path, profile_path, groups):
         concatenate=False,
     )
 
-    heatflux_times = [np.asarray(values, dtype=float) for values in heatflux_times]
-    profile_times = [np.asarray(values, dtype=float) for values in profile_times]
+    heatflux_times = validate_time_segments(
+        heatflux_times,
+        "Heat-flux",
+        require_nonempty=True,
+    )
+    profile_times = validate_time_segments(
+        profile_times,
+        "Zonal-profile",
+        require_nonempty=True,
+    )
     heatflux = [np.asarray(values) for values in heatflux]
     phi = [np.asarray(values) for values in phi]
-    _validate_times(heatflux_times, "Heat-flux")
-    _validate_times(profile_times, "Zonal-profile")
 
     x_grids = [np.asarray(dims["x"], dtype=float) for dims in dimensions]
     x = x_grids[0]
@@ -128,9 +121,16 @@ def _time_bounds(heatflux_times, profile_times, requested):
     return float(lower), float(upper)
 
 
-def plot_heatflux_and_zonal_flow(post, *, groups=None, time=None):
-    """Create one heat-flux and zonal-flow evolution figure per simulation."""
+def plot_heatflux_and_zonal_flow(post, args):
+    """
+    Create one heat-flux and zonal-flow evolution figure per simulation.
+    """
 
+    # Alias arguments
+    groups = args.groups
+    time = args.time
+
+    # Match the scalar and profile outputs for each simulation
     heatflux_paths = {
         path.parent: path
         for path in post.get_valid_netcdf_paths("heatflux/heatflux")
@@ -143,7 +143,10 @@ def plot_heatflux_and_zonal_flow(post, *, groups=None, time=None):
     if not run_paths:
         raise ValueError("No simulation contains both required diagnostics.")
 
+    # Iterate over simulations
     for run_path in run_paths:
+
+        # Load the restart-separated time series
         selected_groups = _group_ids(
             post,
             heatflux_paths[run_path],
@@ -166,6 +169,7 @@ def plot_heatflux_and_zonal_flow(post, *, groups=None, time=None):
             heatflux_times, profile_times, time
         )
 
+        # Restrict both diagnostics to their common time interval
         heatflux_segments = []
         for segment_time, segment_values in zip(heatflux_times, heatflux):
             selected = (segment_time >= time_min) & (segment_time <= time_max)
@@ -198,6 +202,7 @@ def plot_heatflux_and_zonal_flow(post, *, groups=None, time=None):
         levels = np.linspace(-color_limit, color_limit, 101)
         norm = Normalize(vmin=-color_limit, vmax=color_limit)
 
+        # Initialise plotting
         fig, axes = plt.subplots(
             2,
             1,
@@ -213,10 +218,12 @@ def plot_heatflux_and_zonal_flow(post, *, groups=None, time=None):
             rf"{run_name}: $t\in[{time_min:.4g},{time_max:.4g}]$"
         )
 
+        # Plot the heat flux
         for segment_time, segment_values in heatflux_segments:
             axes[0].plot(segment_time, segment_values, color="black")
         axes[0].set_ylabel(r"$Q_i/[4 n_e T_e c_s (\rho_s/L_B)^2]$")
 
+        # Plot the zonal-flow evolution
         for segment_time, segment_flow in flow_segments:
             axes[1].contourf(
                 segment_time,
@@ -234,6 +241,7 @@ def plot_heatflux_and_zonal_flow(post, *, groups=None, time=None):
         axes[1].set_xlabel(r"$(2c_s/L_B)t$")
         axes[1].set_xlim(time_min, time_max)
 
+        # Save figure if required
         post.save(
             fig,
             name=figure_name,
@@ -245,6 +253,8 @@ def plot_heatflux_and_zonal_flow(post, *, groups=None, time=None):
 
 
 if __name__ == "__main__":
+
+    # Setup parser
     parser = argparse.ArgumentParser(
         parents=[FlucsPostProcessing.parser()],
         description="Plot heat flux and the time evolution of zonal flow.",
@@ -258,14 +268,13 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
+    # Initialise post-processing object
     post = FlucsPostProcessing(
         io_paths=args.io_path,
         save_directory=args.save_directory,
         output_files=["output.0d.nc", "output.1d.nc"],
         constraint="both",
     )
-    plot_heatflux_and_zonal_flow(
-        post,
-        groups=args.groups,
-        time=args.time,
-    )
+
+    # Call function
+    plot_heatflux_and_zonal_flow(post, args)

@@ -1,4 +1,4 @@
-"""Shared CPU helpers for zonal-profile postprocessing."""
+"""Shared helpers for the cold-ion ITG profile plotting scripts."""
 
 from __future__ import annotations
 
@@ -53,6 +53,45 @@ def parse_time_window(value: str) -> tuple[float, float]:
 def _time_close(first: float, second: float) -> bool:
     scale = max(1.0, abs(first), abs(second))
     return bool(np.isclose(first, second, rtol=1e-12, atol=1e-14 * scale))
+
+
+def validate_time_segments(
+    times: list[np.ndarray],
+    name: str = "Time",
+    *,
+    require_nonempty: bool = False,
+) -> list[np.ndarray]:
+    """Validate and convert restart-separated time coordinates."""
+
+    validated = []
+    previous_end = None
+    for group_time in times:
+        time = np.asarray(group_time, dtype=float)
+        if time.ndim != 1 or (require_nonempty and not time.size):
+            qualifier = "non-empty and " if require_nonempty else ""
+            raise ValueError(
+                f"{name} time coordinates must be {qualifier}one-dimensional."
+            )
+        if time.size and not np.all(np.isfinite(time)):
+            raise ValueError(f"{name} time coordinates must be finite.")
+        if time.size > 1 and np.any(np.diff(time) <= 0.0):
+            raise ValueError(
+                f"{name} times must increase strictly within each group."
+            )
+        if (
+            time.size
+            and previous_end is not None
+            and time[0] < previous_end
+            and not _time_close(float(time[0]), previous_end)
+        ):
+            raise ValueError(
+                f"{name} output groups overlap for positive duration."
+            )
+        if time.size:
+            previous_end = float(time[-1])
+        validated.append(time)
+
+    return validated
 
 
 def _validate_consistent(
@@ -110,35 +149,14 @@ def time_average_segments(
         if len(group_parameters) != group_count:
             raise ValueError(f"Parameter {name!r} has the wrong group count.")
 
-    local_times = []
+    local_times = validate_time_segments(times)
     local_values = {name: [] for name in values}
-    previous_end = None
-    for group_index, group_time in enumerate(times):
-        time = np.asarray(group_time, dtype=float)
-        if time.ndim != 1:
-            raise ValueError("Time coordinates must be one-dimensional.")
-        if time.size and (not np.all(np.isfinite(time))):
-            raise ValueError("Time coordinates must be finite.")
-        if time.size > 1 and np.any(np.diff(time) <= 0.0):
-            raise ValueError("Times must increase strictly within each group.")
-
-        if (
-            time.size
-            and previous_end is not None
-            and time[0] < previous_end
-            and not _time_close(float(time[0]), previous_end)
-        ):
-            raise ValueError(
-                "Output groups overlap for positive duration; select "
-                "non-overlapping groups explicitly with --groups."
-            )
-
+    for group_index, (group_time, time) in enumerate(zip(times, local_times)):
         # A shared endpoint has no duration of its own. Keeping it in each
         # adjacent segment preserves both one-sided trapezoids while still
         # avoiding any cross-group interval or double-counted duration.
         group_slice = slice(None)
         time = time[group_slice]
-        local_times.append(time)
         for name, group_values in values.items():
             array = np.asarray(group_values[group_index])
             if array.shape[:1] != np.asarray(group_time).shape:
@@ -146,10 +164,6 @@ def time_average_segments(
                     f"Variable {name!r} does not match its time coordinate."
                 )
             local_values[name].append(array[group_slice])
-
-        original_time = np.asarray(group_time, dtype=float)
-        if original_time.size:
-            previous_end = float(original_time[-1])
 
     nonempty = [time for time in local_times if time.size]
     if not nonempty:
